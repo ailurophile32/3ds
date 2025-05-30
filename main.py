@@ -4,25 +4,38 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from scipy.interpolate import griddata
 from pathlib import Path
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict, Any
 import sys
+import traceback # 导入traceback
 import matplotlib
-from mpl_toolkits.mplot3d import Axes3D
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-from matplotlib.tri import Triangulation
+from matplotlib.figure import Figure
+# 使用PySide6兼容的matplotlib后端
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+import plotly.graph_objects as go
+import plotly.io as pio
+from plotly.subplots import make_subplots
+import json
+import tempfile
+import os
+
+# PySide6 组件导入
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, 
     QPushButton, QFileDialog, QLabel, QInputDialog, QMessageBox,
-    QTabWidget, QDoubleSpinBox, QFormLayout, QDialog, QListWidget, QGroupBox, QFrame
+    QTabWidget, QDoubleSpinBox, QFormLayout, QDialog, QListWidget, QGroupBox, QFrame,
+    QSlider, QCheckBox, QComboBox, QProgressBar, QScrollArea
 )
-from PySide6.QtCore import Qt
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
+from PySide6.QtCore import Qt, QUrl, QSize
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtGui import QFont, QIcon
 
 # 解决中文乱码问题
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
 plt.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 matplotlib.rcParams['font.family'] = 'sans-serif'
+
+# 设置Plotly的默认模板
+pio.templates.default = "plotly_white"
 
 
 class CircularHeatmapGenerator:
@@ -32,6 +45,15 @@ class CircularHeatmapGenerator:
         self.data_sets = []  # 存储多个数据集，每个元素是(数据, Z轴深度, 文件名)的元组
         self.fig_2d = None  # 当前选中的2D图形
         self.fig_3d = None  # 3D图形（包含所有深度层）
+        self.plotly_fig: Optional[go.Figure] = None  # Plotly图形，添加类型提示
+        self.performance_settings = {
+            'resolution': 60,       # 默认降低分辨率以提高性能
+            'max_points': 5000,     # 限制点的最大数量
+            'point_size': 5,        # 点大小
+            'alpha': 0.7,           # 透明度
+            'show_points': True,    # 是否显示原始数据点
+            'decimation': 2         # 数据抽样率 (取每 N 个点)
+        }
         
     def load_csv(self, file_path: str, z_depth: float = 0.0) -> bool:
         """加载CSV文件
@@ -175,157 +197,228 @@ class CircularHeatmapGenerator:
         self.fig_2d.tight_layout()
         return self.fig_2d
     
-    def create_circular_heatmap_3d(self, resolution: int = 100, figsize: Tuple[int, int] = (12, 10)) -> Figure:
-        """创建所有数据集的3D圆形热力图
+    def update_performance_settings(self, settings: Dict[str, Any]):
+        """更新性能设置
         
         Args:
-            resolution: 网格分辨率
-            figsize: 图形大小
-            
+            settings: 性能设置字典
+        """
+        self.performance_settings.update(settings)
+        print(f"性能设置已更新: {settings}")
+    
+    def create_plotly_3d_heatmap(self) -> Optional[go.Figure]:
+        """使用Plotly创建3D热力图
+        
         Returns:
-            Figure: matplotlib图形对象
+            go.Figure or None: Plotly图形对象, 如果发生错误则返回None
         """
         if len(self.data_sets) == 0:
-            raise ValueError("请先加载CSV数据")
+            print("错误: 没有加载CSV数据用于生成3D热力图。")
+            return None
         
-        # 创建3D图形
-        self.fig_3d = Figure(figsize=figsize, facecolor='white')
-        ax = self.fig_3d.add_subplot(111, projection='3d')
-        
-        # 确定全局的Z轴范围
-        z_values = [z for _, z, _ in self.data_sets]
-        z_min = min(z_values) - 1
-        z_max = max(z_values) + 1
-        
-        # 为每个数据集生成一个圆形热力图层
-        for dataset_index, (data, z_depth, file_name) in enumerate(self.data_sets):
-            # 提取坐标和数值
-            x = data['X'].values
-            y = data['Y'].values
-            values = data['Value'].values
+        try:
+            print("DEBUG: 开始创建 Plotly 3D 热力图...")
+            # 限制内存使用
+            max_points_total = 50000  # 总点数限制
+            current_total_points = 0
             
-            # 计算数据的中心点和半径
-            x_center = (x.max() + x.min()) / 2
-            y_center = (y.max() + y.min()) / 2
-            radius = max(x.max() - x.min(), y.max() - y.min()) / 2
+            self.plotly_fig = make_subplots(
+                rows=1, cols=1,
+                specs=[[{'type': 'scene'}]],
+                subplot_titles=["SiC应力分布3D可视化"]
+            )
             
-            # 创建圆形网格
-            xi = np.linspace(x_center - radius, x_center + radius, resolution)
-            yi = np.linspace(y_center - radius, y_center + radius, resolution)
-            xi_grid, yi_grid = np.meshgrid(xi, yi)
-            
-            # 插值生成热力图数据
-            zi = griddata((x, y), values, (xi_grid, yi_grid), method='cubic', fill_value=np.nan)
-            
-            # 创建圆形遮罩
-            distances = np.sqrt((xi_grid - x_center)**2 + (yi_grid - y_center)**2)
-            mask = distances > radius
-            zi[mask] = np.nan
-            
-            # 创建Z轴坐标（统一深度）
-            z_grid = np.full_like(xi_grid, z_depth)
-            
-            # 将面片划分为三角形，只绘制圆形区域内的部分
-            triangles = []
-            vertices = []
-            colors = []
-            
-            # 转换为归一化颜色值
-            norm = plt.Normalize(np.nanmin(zi), np.nanmax(zi))
-            cmap = plt.cm.RdYlBu_r
-            
-            for i in range(resolution-1):
-                for j in range(resolution-1):
-                    # 检查当前网格的四个顶点是否都在圆内
-                    points = [
-                        (i, j), (i+1, j), (i, j+1), (i+1, j+1)
-                    ]
-                    points_in_circle = [(not mask[p[0], p[1]]) for p in points]
+            # 为每个数据集添加一个散点图层
+            for dataset_index, (data, z_depth, file_name) in enumerate(self.data_sets):
+                try:
+                    print(f"DEBUG: 处理数据集 {dataset_index}: {file_name} at Z={z_depth}")
+                    x = data['X'].values
+                    y = data['Y'].values
+                    values = data['Value'].values
                     
-                    # 只有当至少有三个点在圆内时才添加三角形
-                    if sum(points_in_circle) >= 3:
-                        # 创建两个三角形，组成一个方格
-                        if not mask[i, j] and not mask[i+1, j] and not mask[i, j+1]:
-                            idx1 = len(vertices)
-                            vertices.append([xi_grid[i, j], yi_grid[i, j], z_grid[i, j]])
-                            vertices.append([xi_grid[i+1, j], yi_grid[i+1, j], z_grid[i+1, j]])
-                            vertices.append([xi_grid[i, j+1], yi_grid[i, j+1], z_grid[i, j+1]])
-                            triangles.append([idx1, idx1+1, idx1+2])
+                    # 根据已处理的总点数动态调整采样率
+                    original_points = len(x)
+                    remaining_points = max_points_total - current_total_points
+                    
+                    # 动态计算更合适的采样率
+                    if original_points > remaining_points and remaining_points > 0:
+                        decimation = max(self.performance_settings['decimation'], 
+                                        int(np.ceil(original_points / remaining_points)))
+                    else:
+                        decimation = self.performance_settings['decimation']
+                    
+                    if decimation > 1:
+                        indices = np.arange(0, len(x), decimation)
+                        x = x[indices]
+                        y = y[indices]
+                        values = values[indices]
+                        print(f"DEBUG: 数据集 {file_name} 已降采样: {len(indices)}/{original_points}, 采样率: 1/{decimation}")
+                    
+                    # 更新已处理的总点数
+                    current_total_points += len(x)
+                    
+                    x_center = (x.max() + x.min()) / 2
+                    y_center = (y.max() + y.min()) / 2
+                    radius = max(x.max() - x.min(), y.max() - y.min()) / 2
+                    
+                    z = np.full_like(x, z_depth)
+                    
+                    distances = np.sqrt((x - x_center)**2 + (y - y_center)**2)
+                    mask = distances <= radius
+
+                    if not np.any(mask):
+                        print(f"警告: 数据集 {file_name} 在半径 {radius}μm 内没有数据点。跳过此数据集的散点图层。")
+                        continue
+                    
+                    print(f"DEBUG: 为 {file_name} 添加 Scatter3d trace, 点数: {np.sum(mask)}")
+                    self.plotly_fig.add_trace(
+                        go.Scatter3d(
+                            x=x[mask],
+                            y=y[mask],
+                            z=z[mask],
+                            mode='markers',
+                            marker=dict(
+                                size=self.performance_settings['point_size'],
+                                color=values[mask],
+                                colorscale='RdBu_r',
+                                opacity=self.performance_settings['alpha'],
+                                colorbar=dict(
+                                    title="应力值 (MPa)",
+                                    thickness=20,
+                                ),
+                                showscale=(dataset_index == 0) # 仅为第一个轨迹显示色条
+                            ),
+                            text=[f"X: {vx:.1f}μm, Y: {vy:.1f}μm, Z: {vz:.1f}μm<br>应力: {vv:.2f} MPa" 
+                                for vx, vy, vz, vv in zip(x[mask], y[mask], z[mask], values[mask])],
+                            hoverinfo="text",
+                            name=f"{file_name} (Z={z_depth}μm)"
+                        )
+                    )
+                    
+                    if self.performance_settings.get('show_surface', False):
+                        try:
+                            print(f"DEBUG: 为 {file_name} 添加 Surface trace")
+                            resolution = min(self.performance_settings['resolution'], 100)  # 限制最大分辨率
+                            xi = np.linspace(x_center - radius, x_center + radius, resolution)
+                            yi = np.linspace(y_center - radius, y_center + radius, resolution)
+                            xi_grid, yi_grid = np.meshgrid(xi, yi)
                             
-                            # 添加颜色
-                            avg_z = (zi[i, j] + zi[i+1, j] + zi[i, j+1]) / 3
-                            if not np.isnan(avg_z):
-                                colors.append(cmap(norm(avg_z)))
-                            else:
-                                colors.append((1, 1, 1, 0))  # 透明
-                        
-                        if not mask[i+1, j] and not mask[i+1, j+1] and not mask[i, j+1]:
-                            idx2 = len(vertices)
-                            vertices.append([xi_grid[i+1, j], yi_grid[i+1, j], z_grid[i+1, j]])
-                            vertices.append([xi_grid[i+1, j+1], yi_grid[i+1, j+1], z_grid[i+1, j+1]])
-                            vertices.append([xi_grid[i, j+1], yi_grid[i, j+1], z_grid[i, j+1]])
-                            triangles.append([idx2, idx2+1, idx2+2])
+                            print(f"DEBUG: griddata 输入点数 for {file_name}: X={len(x)}, Y={len(y)}")
+                            if len(x) < 4: # griddata cubic 方法至少需要4个点
+                                print(f"警告: 数据集 {file_name} 点数过少 ({len(x)})，无法进行 cubic 插值，跳过表面渲染。")
+                                continue
+
+                            # 使用更快的linear插值代替cubic以提高性能
+                            zi_grid = griddata((x, y), values, (xi_grid, yi_grid), method='linear', fill_value=np.nan)
                             
-                            # 添加颜色
-                            avg_z = (zi[i+1, j] + zi[i+1, j+1] + zi[i, j+1]) / 3
-                            if not np.isnan(avg_z):
-                                colors.append(cmap(norm(avg_z)))
-                            else:
-                                colors.append((1, 1, 1, 0))  # 透明
+                            grid_distances = np.sqrt((xi_grid - x_center)**2 + (yi_grid - y_center)**2)
+                            mask_grid = grid_distances > radius
+                            zi_grid[mask_grid] = np.nan
+                            
+                            if np.all(np.isnan(zi_grid)):
+                                print(f"警告: 数据集 {file_name} 的插值表面全为 NaN，跳过表面渲染。")
+                                continue
+                                
+                            self.plotly_fig.add_trace(
+                                go.Surface(
+                                    x=xi_grid,
+                                    y=yi_grid,
+                                    z=np.full_like(zi_grid, z_depth),
+                                    surfacecolor=zi_grid,
+                                    colorscale='RdBu_r',
+                                    opacity=0.7,
+                                    showscale=False,
+                                    name=f"{file_name} 表面 (Z={z_depth}μm)"
+                                )
+                            )
+                        except Exception as surface_error:
+                            print(f"警告: 为数据集 {file_name} 创建表面时出错: {str(surface_error)}")
+                            continue
+                except Exception as dataset_error:
+                    print(f"警告: 处理数据集 {file_name} 时出错: {str(dataset_error)}")
+                    continue
             
-            # 如果有足够的三角形
-            if triangles:
-                vertices = np.array(vertices)
-                triangles = np.array(triangles)
-                
-                # 创建三角形网格
-                tri_collection = Poly3DCollection([vertices[t] for t in triangles])
-                tri_collection.set_facecolors(colors)
-                tri_collection.set_edgecolors('none')  # 不显示边缘线
-                tri_collection.set_alpha(0.8)  # 设置透明度
-                ax.add_collection3d(tri_collection)
+            print("DEBUG: 配置3D场景布局...")
+            self.plotly_fig.update_layout(
+                scene=dict(
+                    xaxis_title='X坐标 (μm)',
+                    yaxis_title='Y坐标 (μm)',
+                    zaxis_title='Z深度 (μm)',
+                    aspectmode='data', 
+                    camera=dict(
+                        eye=dict(x=1.5, y=1.5, z=1)
+                    )
+                ),
+                title_text="SiC应力分布3D热力图 (多层)",
+                margin=dict(l=0, r=0, t=50, b=0),
+                legend=dict(
+                    yanchor="top",
+                    y=0.99,
+                    xanchor="left",
+                    x=0.01,
+                    bgcolor="rgba(255,255,255,0.5)"
+                ),
+                template="plotly_white"
+            )
             
-            # 绘制每个层的原始数据点
-            z_points = np.full_like(x, z_depth)
-            scatter = ax.scatter(x, y, z_points, c=values, cmap='RdYlBu_r', s=10, alpha=0.6)
+            # 简化配置以减少内存占用
+            self.plotly_fig.update_layout(
+                uirevision='true',  # 减少UI状态更新
+                hovermode=False,    # 禁用悬停模式以减少事件处理
+                autosize=True       # 自动调整大小
+            )
             
-            # 添加Z坐标标签
-            ax.text(x_center, y_center, z_depth, f"Z={z_depth}μm\n{file_name}", 
-                    fontsize=8, ha='center', va='center')
-        
-        # 设置坐标轴
-        ax.set_xlabel('X坐标 (μm)', fontsize=12, fontfamily='sans-serif')
-        ax.set_ylabel('Y坐标 (μm)', fontsize=12, fontfamily='sans-serif')
-        ax.set_zlabel('Z深度 (μm)', fontsize=12, fontfamily='sans-serif')
-        ax.set_title(f'SiC应力分布3D热力图 (多层)', fontsize=14, fontweight='bold', fontfamily='sans-serif')
-        
-        # 设置Z轴范围
-        ax.set_zlim(z_min, z_max)
-        
-        # 添加颜色条
-        cbar = self.fig_3d.colorbar(scatter, ax=ax, shrink=0.6, aspect=20)
-        cbar.set_label('应力值 (MPa)', fontsize=12, fontfamily='sans-serif')
-        
-        # 设置视角
-        ax.view_init(elev=25, azim=45)
-        
-        self.fig_3d.tight_layout()
-        return self.fig_3d
+            print("DEBUG: Plotly 3D 热力图创建完成。")
+            return self.plotly_fig
+
+        except MemoryError:
+            error_message = "内存不足，无法创建3D热力图。请尝试减少数据点数量或降低分辨率。"
+            print(error_message)
+            return None
+        except Exception as e:
+            error_message = f'创建Plotly 3D图形时发生错误: {str(e)}\nTraceback: {traceback.format_exc()}'
+            print(error_message)
+            return None
     
     def save_heatmap(self, output_path: str, figure_type: str = '2d', dpi: int = 300):
         """保存热力图
         
         Args:
             output_path: 输出文件路径
-            figure_type: 图形类型 ('2d' 或 '3d')
+            figure_type: 图形类型 ('2d' 或 '3d' 或 'plotly')
             dpi: 图像分辨率
         """
-        fig = self.fig_2d if figure_type == '2d' else self.fig_3d
-        if fig is None:
-            raise ValueError(f"请先生成{figure_type.upper()}热力图")
-        
-        fig.savefig(output_path, dpi=dpi, bbox_inches='tight')
-        print(f"{figure_type.upper()}热力图已保存到: {output_path}")
+        if figure_type == '2d':
+            if self.fig_2d is None:
+                raise ValueError("请先生成2D热力图")
+            self.fig_2d.savefig(output_path, dpi=dpi, bbox_inches='tight')
+            print(f"2D热力图已保存到: {output_path}")
+        elif figure_type == '3d':
+            if self.fig_3d is None:
+                raise ValueError("请先生成3D热力图")
+            self.fig_3d.savefig(output_path, dpi=dpi, bbox_inches='tight')
+            print(f"3D热力图已保存到: {output_path}")
+        elif figure_type == 'plotly':
+            if self.plotly_fig is None:
+                raise ValueError("请先生成Plotly热力图")
+            
+            # 根据文件扩展名保存为不同格式
+            ext = Path(output_path).suffix.lower()
+            if ext == '.html':
+                pio.write_html(self.plotly_fig, output_path)
+            elif ext in ['.png', '.jpg', '.jpeg']:
+                pio.write_image(self.plotly_fig, output_path)
+            elif ext == '.pdf':
+                pio.write_image(self.plotly_fig, output_path)
+            elif ext == '.json':
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(json.dumps(self.plotly_fig.to_dict()))
+            else:
+                pio.write_image(self.plotly_fig, output_path)
+            
+            print(f"Plotly热力图已保存到: {output_path}")
+        else:
+            raise ValueError(f"不支持的图形类型: {figure_type}")
 
 
 class ZDepthInputDialog(QDialog):
@@ -355,6 +448,239 @@ class ZDepthInputDialog(QDialog):
         return self.z_spinbox.value()
 
 
+class PerformanceSettingsDialog(QDialog):
+    """性能设置对话框"""
+    
+    def __init__(self, parent=None, current_settings=None):
+        super().__init__(parent)
+        self.settings = current_settings or {}
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化界面"""
+        self.setWindowTitle("3D性能设置")
+        layout = QFormLayout()
+        
+        # 分辨率滑块
+        self.resolution_slider = QSlider(Qt.Horizontal)
+        self.resolution_slider.setRange(20, 200)
+        self.resolution_slider.setValue(self.settings.get('resolution', 60))
+        self.resolution_label = QLabel(f"分辨率: {self.resolution_slider.value()}")
+        self.resolution_slider.valueChanged.connect(
+            lambda value: self.resolution_label.setText(f"分辨率: {value}"))
+        layout.addRow(self.resolution_label, self.resolution_slider)
+        
+        # 点大小滑块
+        self.point_size_slider = QSlider(Qt.Horizontal)
+        self.point_size_slider.setRange(1, 20)
+        self.point_size_slider.setValue(self.settings.get('point_size', 5))
+        self.point_size_label = QLabel(f"点大小: {self.point_size_slider.value()}")
+        self.point_size_slider.valueChanged.connect(
+            lambda value: self.point_size_label.setText(f"点大小: {value}"))
+        layout.addRow(self.point_size_label, self.point_size_slider)
+        
+        # 透明度滑块
+        self.alpha_slider = QSlider(Qt.Horizontal)
+        self.alpha_slider.setRange(1, 10)
+        self.alpha_slider.setValue(int(self.settings.get('alpha', 0.7) * 10))
+        self.alpha_label = QLabel(f"透明度: {self.alpha_slider.value() / 10}")
+        self.alpha_slider.valueChanged.connect(
+            lambda value: self.alpha_label.setText(f"透明度: {value / 10}"))
+        layout.addRow(self.alpha_label, self.alpha_slider)
+        
+        # 数据抽样率
+        self.decimation_combo = QComboBox()
+        decimation_options = [1, 2, 5, 10, 20]
+        for option in decimation_options:
+            self.decimation_combo.addItem(f"1/{option}", option)
+        # 设置当前值
+        current_decimation = self.settings.get('decimation', 2)
+        index = decimation_options.index(current_decimation) if current_decimation in decimation_options else 1
+        self.decimation_combo.setCurrentIndex(index)
+        layout.addRow("数据抽样率:", self.decimation_combo)
+        
+        # 显示原始数据点
+        self.show_points_checkbox = QCheckBox()
+        self.show_points_checkbox.setChecked(self.settings.get('show_points', True))
+        layout.addRow("显示原始数据点:", self.show_points_checkbox)
+        
+        # 显示表面
+        self.show_surface_checkbox = QCheckBox()
+        self.show_surface_checkbox.setChecked(self.settings.get('show_surface', False))
+        layout.addRow("显示表面渲染:", self.show_surface_checkbox)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        self.ok_button = QPushButton("确定")
+        self.ok_button.clicked.connect(self.accept)
+        self.cancel_button = QPushButton("取消")
+        self.cancel_button.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.ok_button)
+        
+        layout.addRow("", button_layout)
+        self.setLayout(layout)
+    
+    def get_settings(self):
+        """获取设置值"""
+        return {
+            'resolution': self.resolution_slider.value(),
+            'point_size': self.point_size_slider.value(),
+            'alpha': self.alpha_slider.value() / 10,
+            'decimation': self.decimation_combo.currentData(),
+            'show_points': self.show_points_checkbox.isChecked(),
+            'show_surface': self.show_surface_checkbox.isChecked(),
+        }
+
+
+class PlotlyWebView(QWebEngineView):
+    """用于显示Plotly图表的WebView"""
+    
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.temp_file: Optional[str] = None
+        self.setMinimumSize(QSize(600, 400))
+        print("DEBUG: PlotlyWebView initialized")
+        
+        # 添加加载完成和错误处理信号
+        self.loadFinished.connect(self.on_load_finished)
+        self.loadStarted.connect(self.on_load_started)
+    
+    def on_load_started(self):
+        """加载开始时的处理"""
+        print("DEBUG: WebView开始加载页面")
+    
+    def on_load_finished(self, success: bool):
+        """加载完成时的处理"""
+        if success:
+            print("DEBUG: WebView页面加载成功")
+            if hasattr(self.parent(), 'status_label'):
+                self.parent().status_label.setText('3D热力图加载完成')
+        else:
+            print("ERROR: WebView页面加载失败")
+            QMessageBox.warning(self.parent(), "加载失败", 
+                               "3D图表加载失败，请检查数据大小或尝试降低性能设置中的分辨率。")
+            if hasattr(self.parent(), 'status_label'):
+                self.parent().status_label.setText('3D图表加载失败')
+    
+    def display_figure(self, fig: go.Figure):
+        """显示Plotly图形
+        
+        Args:
+            fig: plotly.graph_objects.Figure对象
+        """
+        print("DEBUG: PlotlyWebView.display_figure called")
+        try:
+            # 清理旧的临时文件
+            self._cleanup_temp_file()
+            
+            # 创建临时HTML文件，使用更安全的临时文件创建方式
+            try:
+                print("DEBUG: Attempting to create new temp file with mkstemp")
+                # 使用系统临时目录，避免权限问题
+                temp_dir = tempfile.gettempdir()
+                fd, temp_file_path = tempfile.mkstemp(suffix='.html', dir=temp_dir)
+                os.close(fd) # 确保文件描述符立即关闭
+                self.temp_file = temp_file_path # 存储路径
+                print(f"DEBUG: New temp file created: {self.temp_file}")
+            except Exception as temp_file_error:
+                print(f"错误: 创建临时文件失败: {str(temp_file_error)}")
+                QMessageBox.critical(self, "错误", f"创建临时文件失败: {str(temp_file_error)}")
+                return
+
+            # 精简配置以减少HTML文件大小
+            config = {
+                'scrollZoom': True,
+                'displayModeBar': True,
+                'responsive': True,  # 响应式设计
+                'toImageButtonOptions': {
+                    'format': 'png',
+                    'filename': 'stress_3d_plot',
+                    'height': 800,
+                    'width': 1000,
+                    'scale': 1.5
+                }
+            }
+            
+            try:
+                print(f"DEBUG: Attempting to write Plotly figure to HTML: {self.temp_file}")
+                
+                # 内嵌Plotly.js库以避免网络依赖问题
+                fig.write_html(
+                    self.temp_file,
+                    include_plotlyjs='inline',  # 内嵌plotly.js库，避免CDN网络问题
+                    config=config,
+                    include_mathjax=False,
+                    full_html=True,
+                    auto_open=False
+                )
+                print(f"DEBUG: Successfully wrote Plotly figure to HTML: {self.temp_file}")
+                
+                # 验证文件是否成功创建且有内容
+                if not os.path.exists(self.temp_file):
+                    raise FileNotFoundError(f"临时HTML文件创建失败: {self.temp_file}")
+                
+                file_size = os.path.getsize(self.temp_file)
+                if file_size < 1000:  # 文件太小可能有问题
+                    raise ValueError(f"生成的HTML文件异常小 ({file_size} bytes)，可能生成失败")
+                
+                print(f"DEBUG: HTML文件验证成功，大小: {file_size} bytes")
+            except Exception as write_error:
+                print(f"错误: 写入HTML文件失败: {str(write_error)}")
+                QMessageBox.critical(self, "错误", f"写入HTML文件失败: {str(write_error)}")
+                self._cleanup_temp_file()
+                return
+            
+            try:
+                # 使用file://协议确保正确的URL格式
+                local_url = QUrl.fromLocalFile(os.path.abspath(self.temp_file))
+                print(f"DEBUG: Attempting to load URL in QWebEngineView: {local_url.toString()}")
+                
+                if not local_url.isValid():
+                    print(f"错误: 生成的本地文件URL无效: {self.temp_file}")
+                    QMessageBox.critical(self, "错误", f"无法加载图表，因为生成的URL无效: {self.temp_file}")
+                    self._cleanup_temp_file()
+                    return
+
+                # 设置加载超时处理
+                QApplication.processEvents()  # 确保UI响应
+                self.load(local_url)
+                print(f"DEBUG: QWebEngineView.load() called with URL: {local_url.toString()}")
+                
+                # 显示加载提示
+                if hasattr(self.parent(), 'status_label'):
+                    self.parent().status_label.setText('正在加载3D图表，请稍候...')
+                
+            except Exception as load_error:
+                print(f"错误: 加载URL到WebView失败: {str(load_error)}")
+                QMessageBox.critical(self, "错误", f"加载URL到WebView失败: {str(load_error)}")
+                self._cleanup_temp_file()
+                return
+            
+        except Exception as e:
+            error_message = f'PlotlyWebView.display_figure 发生错误: {str(e)}\nTraceback: {traceback.format_exc()}'
+            print(error_message)
+            QMessageBox.critical(self, "显示错误", f"在显示3D图形时发生内部错误，详情请查看控制台。\n{str(e)}")
+        print("DEBUG: PlotlyWebView.display_figure finished")
+
+    def _cleanup_temp_file(self):
+        """安全清理临时文件"""
+        if self.temp_file and os.path.exists(self.temp_file):
+            try:
+                print(f"DEBUG: Cleaning up temp file: {self.temp_file}")
+                os.unlink(self.temp_file)
+                print(f"DEBUG: Successfully cleaned up temp file: {self.temp_file}")
+            except Exception as e:
+                # 只记录错误，不抛出异常
+                print(f"警告: 清理临时文件 {self.temp_file} 失败: {e}")
+        self.temp_file = None
+
+    def __del__(self):
+        """清理临时文件"""
+        print(f"DEBUG: PlotlyWebView.__del__ called for {self}")
+        self._cleanup_temp_file()
+
+
 class HeatmapViewer(QMainWindow):
     """热力图查看器GUI"""
     
@@ -362,6 +688,7 @@ class HeatmapViewer(QMainWindow):
         super().__init__()
         self.generator = CircularHeatmapGenerator()
         self.current_dataset_index = 0
+        self.plotly_view: Optional[PlotlyWebView] = None # 类型提示
         self.init_ui()
         
     def init_ui(self):
@@ -385,7 +712,7 @@ class HeatmapViewer(QMainWindow):
         
         # 左侧控制面板
         left_panel = QWidget()
-        left_layout = QVBoxLayout(left_panel)
+        self.left_layout = QVBoxLayout(left_panel)
         h_splitter.addWidget(left_panel, 1)
         
         # CSV文件管理区域
@@ -415,7 +742,7 @@ class HeatmapViewer(QMainWindow):
         csv_buttons.addWidget(self.z_input_button)
         
         csv_layout.addLayout(csv_buttons)
-        left_layout.addWidget(csv_group)
+        self.left_layout.addWidget(csv_group)
         
         # 热力图生成控制区域
         control_group = QGroupBox("热力图控制")
@@ -436,18 +763,28 @@ class HeatmapViewer(QMainWindow):
         
         control_layout.addLayout(generate_buttons)
         
+        # 添加性能设置按钮
+        self.performance_button = QPushButton('3D性能设置')
+        self.performance_button.clicked.connect(self.show_performance_settings)
+        control_layout.addWidget(self.performance_button)
+        
         # 保存按钮
         self.save_button = QPushButton('保存当前图像')
         self.save_button.clicked.connect(self.save_heatmap)
         self.save_button.setEnabled(False)
         control_layout.addWidget(self.save_button)
         
-        left_layout.addWidget(control_group)
+        # 添加帮助按钮
+        self.help_button = QPushButton('性能优化帮助')
+        self.help_button.clicked.connect(self.show_help_dialog)
+        control_layout.addWidget(self.help_button)
+        
+        self.left_layout.addWidget(control_group)
         
         # 状态标签
         self.status_label = QLabel('请添加CSV文件开始')
         self.status_label.setAlignment(Qt.AlignCenter)
-        left_layout.addWidget(self.status_label)
+        self.left_layout.addWidget(self.status_label)
         
         # 右侧可视化区域
         right_panel = QWidget()
@@ -460,9 +797,9 @@ class HeatmapViewer(QMainWindow):
         right_layout.addWidget(self.visualization_frame)
         
         # 当前视图类型
-        self.current_view_type = None  # '2d' 或 '3d'
+        self.current_view_type = None  # '2d' 或 '3d' 或 'plotly'
         self.current_canvas = None
-        
+    
     def load_csv_file(self):
         """加载CSV文件"""
         file_paths, _ = QFileDialog.getOpenFileNames(
@@ -476,7 +813,7 @@ class HeatmapViewer(QMainWindow):
             # 弹出Z轴深度设置对话框
             z_depth, ok = QInputDialog.getDouble(
                 self, 'Z轴深度设置', 
-                f'请为 {Path(file_path).name} 设置Z轴深度值 (μm):', 
+                f'请为 {Path(file_path).name} 设置Z轴深度值 (μm): ', 
                 0.0, -10000.0, 10000.0, 2
             )
             
@@ -570,58 +907,226 @@ class HeatmapViewer(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, '错误', f'生成2D热力图失败: {str(e)}')
     
+    def show_performance_settings(self):
+        """显示性能设置对话框"""
+        dialog = PerformanceSettingsDialog(self, self.generator.performance_settings)
+        if dialog.exec():
+            new_settings = dialog.get_settings()
+            self.generator.update_performance_settings(new_settings)
+            self.status_label.setText("3D性能设置已更新")
+            
+            # 如果已经生成了3D图，且设置发生变化，询问是否重新生成
+            if self.current_view_type == 'plotly' and self.plotly_view is not None:
+                reply = QMessageBox.question(
+                    self, '更新视图', '设置已更改，是否重新生成3D视图？',
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes
+                )
+                if reply == QMessageBox.Yes:
+                    self.generate_3d_heatmap()
+    
     def generate_3d_heatmap(self):
         """生成3D热力图"""
         if self.generator.get_dataset_count() == 0:
+            self.status_label.setText('没有加载任何数据集，无法生成3D热力图。')
+            QMessageBox.warning(self, '提示', '请先加载至少一个CSV数据集。')
             return
             
         try:
-            fig = self.generator.create_circular_heatmap_3d()
+            # 创建进度对话框
+            progress_dialog = QDialog(self)
+            progress_dialog.setWindowTitle("生成3D热力图")
+            progress_dialog.setFixedSize(400, 100)
             
-            # 清除当前可视化区域
+            progress_layout = QVBoxLayout(progress_dialog)
+            progress_label = QLabel("正在生成3D热力图，请稍候...")
+            progress_bar = QProgressBar()
+            progress_bar.setRange(0, 0)  # 设置为不确定模式
+            
+            progress_layout.addWidget(progress_label)
+            progress_layout.addWidget(progress_bar)
+            
+            # 非模态显示，不阻塞用户操作
+            progress_dialog.setModal(False)
+            progress_dialog.show()
+            QApplication.processEvents()  # 确保对话框显示
+            
+            self.status_label.setText('正在准备生成3D多层热力图...')
+            QApplication.processEvents()
+
+            print("DEBUG: 调用 self.generator.create_plotly_3d_heatmap()")
+            fig = self.generator.create_plotly_3d_heatmap()
+            print(f"DEBUG: self.generator.create_plotly_3d_heatmap() 返回: {type(fig)}")
+            
+            if fig is None:
+                progress_dialog.close()  # 关闭进度对话框
+                QMessageBox.critical(self, '错误', '创建Plotly图形对象失败，请检查控制台输出获取详细信息。')
+                self.status_label.setText('创建Plotly图形对象失败。')
+                return
+
+            progress_label.setText("3D图形已创建，正在准备显示...")
+            QApplication.processEvents()
+            
             self._clear_visualization()
             
-            # 创建新的3D画布
-            self.current_canvas = FigureCanvas(fig)
-            self.visualization_layout.addWidget(self.current_canvas)
-            self.current_view_type = '3d'
+            # 确保WebView正确初始化
+            if not self.plotly_view:
+                print("DEBUG: 创建 PlotlyWebView 实例")
+                self.plotly_view = PlotlyWebView(self)
+                # 确保WebView有足够的空间
+                self.plotly_view.setMinimumSize(600, 400)
             
-            self.status_label.setText('3D多层热力图生成完成')
+            # 先添加到布局中，再显示内容
+            self.visualization_layout.addWidget(self.plotly_view)
+            self.plotly_view.show()
+            QApplication.processEvents()  # 确保WebView完全显示
+            
+            print("DEBUG: 调用 self.plotly_view.display_figure(fig)")
+            self.plotly_view.display_figure(fig)
+            print("DEBUG: self.plotly_view.display_figure(fig) 调用完成")
+            
+            self.current_view_type = 'plotly'
+            
+            # 加载完成后关闭进度对话框
+            progress_dialog.close()
+            
+            self.status_label.setText('3D多层热力图生成完成 (WebGL渲染)')
             self.save_button.setEnabled(True)
             
         except Exception as e:
-            QMessageBox.critical(self, '错误', f'生成3D热力图失败: {str(e)}')
+            if 'progress_dialog' in locals():
+                progress_dialog.close()  # 确保关闭进度对话框
+                
+            error_message = f'生成3D热力图时发生严重错误: {str(e)}\nTraceback: {traceback.format_exc()}'
+            print(error_message) 
+            QMessageBox.critical(self, '严重错误', f"生成3D热力图时发生严重错误，详情请查看控制台输出：\n{str(e)}")
+            self.status_label.setText(f'生成3D热力图失败: {str(e)}')
     
     def _clear_visualization(self):
         """清除可视化区域的内容"""
-        if self.current_canvas:
+        # 清除当前可视化控件
+        if self.current_view_type == '2d' and self.current_canvas:
             self.visualization_layout.removeWidget(self.current_canvas)
             self.current_canvas.deleteLater()
             self.current_canvas = None
+        elif self.current_view_type == 'plotly' and self.plotly_view:
+            self.visualization_layout.removeWidget(self.plotly_view)
+            # 不删除plotly_view对象，而是隐藏它以便重用
+            self.plotly_view.hide()
     
     def save_heatmap(self):
         """保存热力图"""
         if not self.current_view_type:
+            QMessageBox.information(self, "提示", "当前没有可保存的图像。")
             return
             
         figure_type = self.current_view_type
+        default_name = ""
+        file_filter = ""
         
-        default_name = f'circular_heatmap_{figure_type}.png'
+        if figure_type == '2d':
+            default_name = 'circular_heatmap_2d.png'
+            file_filter = 'PNG文件 (*.png);;PDF文件 (*.pdf);;SVG文件 (*.svg)'
+        elif figure_type == 'plotly':
+            default_name = 'stress_3d_visualization.html'
+            file_filter = 'HTML文件 (*.html);;PNG文件 (*.png);;PDF文件 (*.pdf);;JSON文件 (*.json)'
+        
         file_path, _ = QFileDialog.getSaveFileName(
-            self, '保存热力图', default_name, 
-            'PNG文件 (*.png);;PDF文件 (*.pdf);;SVG文件 (*.svg)'
+            self, '保存热力图', default_name, file_filter
         )
         
         if file_path:
             try:
-                self.generator.save_heatmap(file_path, figure_type)
+                if figure_type == '2d':
+                    self.generator.save_heatmap(file_path, '2d')
+                elif figure_type == 'plotly':
+                    self.generator.save_heatmap(file_path, 'plotly')
                 self.status_label.setText(f'已保存{figure_type.upper()}图像到: {Path(file_path).name}')
             except Exception as e:
                 QMessageBox.critical(self, '错误', f'保存失败: {str(e)}')
+    
+    def show_help_dialog(self):
+        """显示帮助对话框"""
+        help_dialog = QDialog(self)
+        help_dialog.setWindowTitle("性能优化帮助")
+        help_dialog.setMinimumSize(600, 400)
+        
+        layout = QVBoxLayout(help_dialog)
+        
+        # 创建帮助文本
+        help_text = """
+<h2>3D热力图性能优化指南</h2>
+
+<h3>常见问题</h3>
+<p>当处理大型数据集或多个数据集时，3D热力图生成可能会遇到以下问题：</p>
+<ul>
+    <li><b>程序崩溃或卡顿</b>: 通常是由于内存不足或处理能力有限</li>
+    <li><b>渲染缓慢</b>: 3D渲染需要大量GPU资源</li>
+    <li><b>浏览器显示白屏</b>: 可能是WebView加载大型HTML文件时超时</li>
+</ul>
+
+<h3>解决方案</h3>
+<p>您可以通过以下方式优化性能：</p>
+
+<h4>1. 使用性能设置</h4>
+<ul>
+    <li>降低<b>分辨率</b>: 减少网格密度，提高渲染速度</li>
+    <li>增加<b>数据抽样率</b>: 降低显示的数据点数量</li>
+    <li>减小<b>点大小</b>: 降低GPU渲染负担</li>
+    <li>禁用<b>表面渲染</b>: 仅显示数据点可大幅提高性能</li>
+</ul>
+
+<h4>2. 数据处理</h4>
+<ul>
+    <li>分批处理数据: 每次只加载和处理部分数据</li>
+    <li>降低CSV文件数量: 尝试合并相似深度的数据</li>
+    <li>预处理数据: 在导入前使用其他工具对数据进行降采样</li>
+</ul>
+
+<h4>3. 系统优化</h4>
+<ul>
+    <li>关闭其他程序: 释放更多系统资源</li>
+    <li>更新显卡驱动: 确保WebGL性能最优</li>
+    <li>使用独立显卡: 如果系统有集成显卡和独立显卡</li>
+</ul>
+"""
+        
+        help_label = QLabel()
+        help_label.setText(help_text)
+        help_label.setWordWrap(True)
+        help_label.setTextFormat(Qt.RichText)
+        help_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(help_label)
+        scroll_area.setWidgetResizable(True)
+        
+        layout.addWidget(scroll_area)
+        
+        # 添加关闭按钮
+        close_button = QPushButton("关闭")
+        close_button.clicked.connect(help_dialog.close)
+        layout.addWidget(close_button)
+        
+        help_dialog.exec_()
 
 
 def main():
     """主函数"""
+    # 强制设置stdout和stderr编码为UTF-8 (Python 3.7+)
+    if hasattr(sys.stdout, 'reconfigure') and sys.stdout.encoding != 'utf-8':
+        try:
+            sys.stdout.reconfigure(encoding='utf-8')
+            # print("标准输出编码已设置为UTF-8") # 避免这条信息本身乱码
+        except Exception as e:
+            pass # print(f"设置标准输出编码失败: {e}") # 避免这条信息本身乱码
+            
+    if hasattr(sys.stderr, 'reconfigure') and sys.stderr.encoding != 'utf-8':
+        try:
+            sys.stderr.reconfigure(encoding='utf-8')
+            # print("标准错误编码已设置为UTF-8", file=sys.stderr)
+        except Exception as e:
+            pass # print(f"设置标准错误编码失败: {e}", file=sys.stderr)
+
     # 设置控制台输出编码
     if sys.platform.startswith('win'):
         import locale
@@ -665,16 +1170,16 @@ def main():
             
             # 生成包含所有层的3D图
             if generator.get_dataset_count() > 1:
-                fig_3d = generator.create_circular_heatmap_3d()
-                output_3d = "multi_layer_3d_heatmap.png"
-                generator.save_heatmap(output_3d, '3d')
+                fig_3d = generator.create_plotly_3d_heatmap()
+                output_3d = "multi_layer_3d_heatmap.html"
+                generator.save_heatmap(output_3d, 'plotly')
                 print(f"多层3D热力图已生成并保存为: {output_3d}")
             else:
                 # 单层也生成3D图
-                fig_3d = generator.create_circular_heatmap_3d()
+                fig_3d = generator.create_plotly_3d_heatmap()
                 data, z_depth, file_name = generator.data_sets[0]
-                output_3d = f"{file_name.replace('.csv', '')}_3d_z{z_depth}.png"
-                generator.save_heatmap(output_3d, '3d')
+                output_3d = f"{file_name.replace('.csv', '')}_3d_z{z_depth}.html"
+                generator.save_heatmap(output_3d, 'plotly')
                 print(f"{file_name}的3D热力图已生成并保存为: {output_3d}")
         else:
             print("未成功加载任何CSV文件")
@@ -686,6 +1191,12 @@ def main():
         font = app.font()
         font.setFamily('Microsoft YaHei')
         app.setFont(font)
+        
+        # 显示欢迎信息
+        print("\n===== SiC应力圆形热力图生成器 - 多层3D可视化 =====")
+        print("使用Plotly+WebGL高性能渲染引擎")
+        print("支持交互式3D可视化，鼠标左键旋转，右键平移，滚轮缩放")
+        print("=============================================\n")
         
         viewer = HeatmapViewer()
         viewer.show()
