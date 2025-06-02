@@ -61,6 +61,29 @@ class CircularHeatmapGenerator:
             'vmin': None,          # 手动设置的最小值
             'vmax': None           # 手动设置的最大值
         }
+        # 当前选择的色标
+        self.current_colormap = 'seismic'  # 默认色标
+    
+    def get_plotly_colorscale(self, matplotlib_cmap: str) -> str:
+        """将matplotlib色标名称转换为Plotly色标名称
+        
+        Args:
+            matplotlib_cmap: matplotlib色标名称
+            
+        Returns:
+            str: 对应的Plotly色标名称
+        """
+        # matplotlib到Plotly的色标映射
+        colormap_mapping = {
+            'seismic': 'RdBu',
+            'RdYlBu_r': 'RdBu_r',
+            'coolwarm': 'RdBu',
+            'Spectral': 'Spectral',
+            'jet': 'Jet',
+            'rainbow': 'Rainbow'
+        }
+        
+        return colormap_mapping.get(matplotlib_cmap, 'RdBu')
         
     def load_csv(self, file_path: str, z_depth: float = 0.0) -> bool:
         """加载CSV文件
@@ -223,7 +246,7 @@ class CircularHeatmapGenerator:
         # 绘制热力图
         im = ax.imshow(zi, extent=[x_center-radius, x_center+radius, 
                                   y_center-radius, y_center+radius],
-                      origin='lower', cmap='RdYlBu_r', aspect='equal',
+                      origin='lower', cmap=self.current_colormap, aspect='equal',
                       vmin=vmin, vmax=vmax)
         
         # 添加圆形边界
@@ -336,7 +359,7 @@ class CircularHeatmapGenerator:
                              y=yi_grid,
                              z=z_masked,  # 使用遮罩后的Z值
                              surfacecolor=zi_grid,
-                             colorscale='RdBu_r',
+                             colorscale=self.get_plotly_colorscale(self.current_colormap),
                              cmin=vmin,  # 设置颜色范围最小值
                              cmax=vmax,  # 设置颜色范围最大值
                              cauto=False,  # 禁用自动颜色范围
@@ -888,6 +911,28 @@ class HeatmapViewer(QMainWindow):
         self.auto_range_checkbox.stateChanged.connect(self.on_auto_range_changed)
         colorbar_layout.addWidget(self.auto_range_checkbox)
         
+        # 色标选择
+        colormap_layout = QFormLayout()
+        self.colormap_combo = QComboBox()
+        
+        # 添加精选的色标选项
+        colormap_options = [
+            ('seismic', '红白蓝 - 默认'),
+            ('RdYlBu_r', '红黄蓝(反向)'),
+            ('coolwarm', '蓝白红'),
+            ('Spectral', '光谱色'),
+            ('jet', 'Jet'),
+            ('rainbow', '彩虹色')
+        ]
+        
+        for value, display_name in colormap_options:
+            self.colormap_combo.addItem(display_name, value)
+        
+        self.colormap_combo.setCurrentIndex(0)  # 默认选择RdYlBu_r
+        self.colormap_combo.currentTextChanged.connect(self.on_colormap_changed)
+        colormap_layout.addRow('色标样式:', self.colormap_combo)
+        colorbar_layout.addLayout(colormap_layout)
+        
         # 手动范围设置
         manual_range_layout = QFormLayout()
         
@@ -1155,6 +1200,27 @@ class HeatmapViewer(QMainWindow):
             self.status_label.setText('色标卡设置已应用')
         else:
             self.status_label.setText('请先生成2D热力图')
+    
+    def on_colormap_changed(self):
+        """色标样式变化时的处理"""
+        # 获取选中的色标值
+        selected_colormap = self.colormap_combo.currentData()
+        if selected_colormap:
+            # 更新生成器中的当前色标
+            self.generator.current_colormap = selected_colormap
+            
+            # 根据当前视图类型重新生成图形
+            if self.generator.get_dataset_count() > 0:
+                if self.current_view_type == '2d':
+                    self.generate_2d_heatmap()
+                    self.status_label.setText(f'已切换到色标: {self.colormap_combo.currentText()}')
+                elif self.current_view_type == '3d':
+                    self.generate_3d_heatmap()
+                    self.status_label.setText(f'3D图色标已切换到: {self.colormap_combo.currentText()}')
+                else:
+                    self.status_label.setText(f'色标已设置为: {self.colormap_combo.currentText()}')
+            else:
+                self.status_label.setText(f'色标已设置为: {self.colormap_combo.currentText()}')
     
     def update_data_range_display(self):
         """更新数据范围显示"""
