@@ -58,6 +58,7 @@ class CircularHeatmapGenerator:
         # 添加色标卡范围设置
         self.colorbar_settings = {
             'auto_range': True,     # 是否自动设置范围
+            'smart_range': True,    # 是否使用智能范围计算
             'vmin': None,          # 手动设置的最小值
             'vmax': None           # 手动设置的最大值
         }
@@ -161,11 +162,12 @@ class CircularHeatmapGenerator:
         self.colorbar_settings.update(settings)
         print(f"色标卡设置已更新: {settings}")
     
-    def get_data_range(self, dataset_index: int = None) -> Tuple[float, float]:
-        """获取数据的值范围
+    def get_data_range(self, dataset_index: int = None, smart_range: bool = True) -> Tuple[float, float]:
+        """获取数据的值范围，支持智能范围计算
         
         Args:
             dataset_index: 数据集索引，如果为None则计算所有数据集的范围
+            smart_range: 是否使用智能范围计算（去除异常值，使用百分位数）
             
         Returns:
             Tuple[float, float]: (最小值, 最大值)
@@ -173,10 +175,11 @@ class CircularHeatmapGenerator:
         if len(self.data_sets) == 0:
             return (0.0, 1.0)
         
+        # 收集数据值
         if dataset_index is not None:
             if 0 <= dataset_index < len(self.data_sets):
                 data, _, _ = self.data_sets[dataset_index]
-                return (data['Value'].min(), data['Value'].max())
+                values = data['Value'].values
             else:
                 return (0.0, 1.0)
         else:
@@ -184,10 +187,94 @@ class CircularHeatmapGenerator:
             all_values = []
             for data, _, _ in self.data_sets:
                 all_values.extend(data['Value'].values)
-            if all_values:
-                return (min(all_values), max(all_values))
-            else:
-                return (0.0, 1.0)
+            values = np.array(all_values) if all_values else np.array([0.0, 1.0])
+        
+        if len(values) == 0:
+            return (0.0, 1.0)
+        
+        if not smart_range:
+            # 传统方法：直接使用最小值和最大值
+            return (float(np.min(values)), float(np.max(values)))
+        
+        # 智能范围计算
+        return self._calculate_smart_range(values)
+    
+    def _calculate_smart_range(self, values: np.ndarray) -> Tuple[float, float]:
+        """计算智能色标卡范围
+        
+        使用统计方法去除异常值，提供更好的视觉效果：
+        1. 使用百分位数去除极端异常值
+        2. 根据数据分布特征调整范围
+        3. 确保范围对称性（如果数据围绕零分布）
+        
+        Args:
+            values: 数据值数组
+            
+        Returns:
+            Tuple[float, float]: (智能最小值, 智能最大值)
+        """
+        # 移除NaN值
+        clean_values = values[~np.isnan(values)]
+        if len(clean_values) == 0:
+            return (0.0, 1.0)
+        
+        # 基本统计信息
+        mean_val = np.mean(clean_values)
+        std_val = np.std(clean_values)
+        median_val = np.median(clean_values)
+        
+        # 使用百分位数去除极端异常值（保留99.5%的数据）
+        p_low = np.percentile(clean_values, 0.25)   # 下四分位数
+        p_high = np.percentile(clean_values, 99.75)  # 上四分位数
+        
+        # 计算四分位距（IQR）用于检测异常值
+        q1 = np.percentile(clean_values, 25)
+        q3 = np.percentile(clean_values, 75)
+        iqr = q3 - q1
+        
+        # 使用IQR方法定义合理范围（1.5倍IQR规则的改进版）
+        lower_bound = q1 - 1.5 * iqr
+        upper_bound = q3 + 1.5 * iqr
+        
+        # 在百分位数和IQR方法之间选择更保守的范围
+        vmin = max(p_low, lower_bound)
+        vmax = min(p_high, upper_bound)
+        
+        # 确保范围不会过小
+        if vmax - vmin < std_val * 0.1:  # 如果范围太小，扩展到至少0.1个标准差
+            center = (vmin + vmax) / 2
+            half_range = max(std_val * 0.5, abs(vmax - vmin) / 2)
+            vmin = center - half_range
+            vmax = center + half_range
+        
+        # 检查数据是否围绕零对称分布
+        if abs(mean_val) < std_val * 0.5:  # 数据大致围绕零分布
+            # 使对称范围，有利于应力数据的可视化
+            max_abs = max(abs(vmin), abs(vmax))
+            vmin = -max_abs
+            vmax = max_abs
+        
+        # 添加小的边距以确保所有重要数据都可见（5%边距）
+        range_margin = (vmax - vmin) * 0.05
+        vmin -= range_margin
+        vmax += range_margin
+        
+        # 美化数值：四舍五入到合适的精度
+        magnitude = max(abs(vmin), abs(vmax))
+        if magnitude > 100:
+            # 大数值：四舍五入到整数
+            vmin = np.floor(vmin)
+            vmax = np.ceil(vmax)
+        elif magnitude > 10:
+            # 中等数值：四舍五入到0.1
+            vmin = np.floor(vmin * 10) / 10
+            vmax = np.ceil(vmax * 10) / 10
+        else:
+            # 小数值：四舍五入到0.01
+            vmin = np.floor(vmin * 100) / 100
+            vmax = np.ceil(vmax * 100) / 100
+        
+        return (float(vmin), float(vmax))
     
     def create_circular_heatmap_2d(self, dataset_index: int = 0, resolution: int = 200, figsize: Tuple[int, int] = (10, 10)) -> Figure:
         """创建特定数据集的2D圆形热力图
@@ -238,7 +325,13 @@ class CircularHeatmapGenerator:
         
         # 确定色标卡范围
         if self.colorbar_settings['auto_range']:
-            vmin, vmax = None, None  # matplotlib自动设置
+            # 自动模式：根据智能范围设置计算合适的范围
+            if self.colorbar_settings['smart_range']:
+                # 使用智能范围计算
+                vmin, vmax = self._calculate_smart_range(values)
+            else:
+                # 使用传统方法：直接使用数据的最小值和最大值
+                vmin, vmax = float(np.min(values)), float(np.max(values))
         else:
             vmin = self.colorbar_settings['vmin']
             vmax = self.colorbar_settings['vmax']
@@ -996,6 +1089,13 @@ class HeatmapViewer(QMainWindow):
         self.auto_range_checkbox.stateChanged.connect(self.on_auto_range_changed)
         colorbar_layout.addWidget(self.auto_range_checkbox)
         
+        # 智能范围计算选项
+        self.smart_range_checkbox = QCheckBox('使用智能范围计算（推荐）')
+        self.smart_range_checkbox.setChecked(True)
+        self.smart_range_checkbox.setToolTip('智能范围计算会自动去除异常值，提供更好的视觉效果')
+        self.smart_range_checkbox.stateChanged.connect(self.on_smart_range_changed)
+        colorbar_layout.addWidget(self.smart_range_checkbox)
+        
         # 色标选择
         colormap_layout = QFormLayout()
         self.colormap_combo = QComboBox()
@@ -1250,10 +1350,11 @@ class HeatmapViewer(QMainWindow):
         """自动范围复选框状态变化时的处理"""
         auto_range = state == Qt.Checked
         
-        # 启用/禁用手动输入框
+        # 启用/禁用相关控件
         self.vmin_spinbox.setEnabled(not auto_range)
         self.vmax_spinbox.setEnabled(not auto_range)
         self.reset_range_button.setEnabled(not auto_range and self.generator.get_dataset_count() > 0)
+        self.smart_range_checkbox.setEnabled(auto_range)  # 智能范围计算只在自动模式下可用
         
         # 更新生成器设置
         self.generator.update_colorbar_settings({'auto_range': auto_range})
@@ -1285,14 +1386,33 @@ class HeatmapViewer(QMainWindow):
                 'vmax': self.vmax_spinbox.value()
             })
     
+    def on_smart_range_changed(self, state):
+        """智能范围计算复选框状态变化时的处理"""
+        smart_range = state == Qt.Checked
+        
+        # 更新生成器设置
+        self.generator.update_colorbar_settings({'smart_range': smart_range})
+        
+        if smart_range:
+            self.status_label.setText('已启用智能范围计算 - 将自动去除异常值')
+        else:
+            self.status_label.setText('已禁用智能范围计算 - 使用原始数据范围')
+        
+        # 如果当前是自动模式且有数据，更新显示
+        if self.auto_range_checkbox.isChecked() and self.generator.get_dataset_count() > 0:
+            self.update_data_range_display()
+    
     def reset_to_data_range(self):
         """重置色标卡范围为当前数据范围"""
         current_row = self.csv_list_widget.currentRow()
         if current_row >= 0:
-            vmin, vmax = self.generator.get_data_range(current_row)
+            # 根据智能范围计算选项获取数据范围
+            smart_range = self.smart_range_checkbox.isChecked()
+            vmin, vmax = self.generator.get_data_range(current_row, smart_range=smart_range)
             self.vmin_spinbox.setValue(vmin)
             self.vmax_spinbox.setValue(vmax)
-            self.status_label.setText(f'已重置色标卡范围为数据范围: {vmin:.2f} - {vmax:.2f} MPa')
+            range_type = "智能" if smart_range else "原始"
+            self.status_label.setText(f'已重置色标卡范围为{range_type}数据范围: {vmin:.2f} - {vmax:.2f} MPa')
     
     def apply_colorbar_settings(self):
         """应用色标卡设置并重新生成2D图"""
@@ -1327,8 +1447,20 @@ class HeatmapViewer(QMainWindow):
         """更新数据范围显示"""
         current_row = self.csv_list_widget.currentRow()
         if current_row >= 0 and self.generator.get_dataset_count() > 0:
-            vmin, vmax = self.generator.get_data_range(current_row)
-            self.data_range_label.setText(f'当前数据范围: {vmin:.2f} - {vmax:.2f} MPa')
+            # 根据智能范围计算选项获取数据范围
+            smart_range = self.smart_range_checkbox.isChecked()
+            vmin, vmax = self.generator.get_data_range(current_row, smart_range=smart_range)
+            
+            # 同时获取原始范围用于对比显示
+            vmin_raw, vmax_raw = self.generator.get_data_range(current_row, smart_range=False)
+            
+            if smart_range:
+                self.data_range_label.setText(
+                    f'智能范围: {vmin:.2f} - {vmax:.2f} MPa\n'
+                    f'原始范围: {vmin_raw:.2f} - {vmax_raw:.2f} MPa'
+                )
+            else:
+                self.data_range_label.setText(f'当前数据范围: {vmin:.2f} - {vmax:.2f} MPa')
             
             # 如果是手动模式且输入框为默认值，自动填充数据范围
             if not self.auto_range_checkbox.isChecked():
