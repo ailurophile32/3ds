@@ -575,7 +575,11 @@ class PerformanceSettingsDialog(QDialog):
         self.resolution_label = QLabel(f"分辨率: {self.resolution_slider.value()}")
         self.resolution_slider.valueChanged.connect(
             lambda value: self.resolution_label.setText(f"分辨率: {value}"))
-        layout.addRow(self.resolution_label, self.resolution_slider)
+        resolution_layout = self._create_setting_with_info(
+            self.resolution_label, self.resolution_slider,
+            "控制3D热力图的网格密度。较低的分辨率可以显著提高渲染速度，但会降低图像精度。推荐范围：20-100。"
+        )
+        layout.addRow("", resolution_layout)
         
         # 点大小滑块
         self.point_size_slider = QSlider(Qt.Horizontal)
@@ -584,7 +588,11 @@ class PerformanceSettingsDialog(QDialog):
         self.point_size_label = QLabel(f"点大小: {self.point_size_slider.value()}")
         self.point_size_slider.valueChanged.connect(
             lambda value: self.point_size_label.setText(f"点大小: {value}"))
-        layout.addRow(self.point_size_label, self.point_size_slider)
+        point_size_layout = self._create_setting_with_info(
+            self.point_size_label, self.point_size_slider,
+            "设置数据点的显示大小。较小的点可以减少GPU渲染负担，提高性能。"
+        )
+        layout.addRow("", point_size_layout)
         
         # 透明度滑块
         self.alpha_slider = QSlider(Qt.Horizontal)
@@ -593,7 +601,11 @@ class PerformanceSettingsDialog(QDialog):
         self.alpha_label = QLabel(f"透明度: {self.alpha_slider.value() / 10}")
         self.alpha_slider.valueChanged.connect(
             lambda value: self.alpha_label.setText(f"透明度: {value / 10}"))
-        layout.addRow(self.alpha_label, self.alpha_slider)
+        alpha_layout = self._create_setting_with_info(
+            self.alpha_label, self.alpha_slider,
+            "控制热力图的透明度。较低的透明度可以减少渲染复杂度，提高性能。"
+        )
+        layout.addRow("", alpha_layout)
         
         # 数据抽样率
         self.decimation_combo = QComboBox()
@@ -604,12 +616,20 @@ class PerformanceSettingsDialog(QDialog):
         current_decimation = self.settings.get('decimation', 2)
         index = decimation_options.index(current_decimation) if current_decimation in decimation_options else 1
         self.decimation_combo.setCurrentIndex(index)
-        layout.addRow("数据抽样率:", self.decimation_combo)
+        decimation_layout = self._create_setting_with_info(
+            QLabel("数据抽样率:"), self.decimation_combo,
+            "控制显示的数据点数量。1/5表示每5个点显示1个。较高的抽样率可以大幅提高性能，但会降低数据精度。"
+        )
+        layout.addRow("", decimation_layout)
         
         # 显示原始数据点
         self.show_points_checkbox = QCheckBox()
         self.show_points_checkbox.setChecked(self.settings.get('show_points', False))  # 默认关闭，因为方格图更清晰
-        layout.addRow("显示原始数据点:", self.show_points_checkbox)
+        show_points_layout = self._create_setting_with_info(
+            QLabel("显示原始数据点:"), self.show_points_checkbox,
+            "是否在热力图上显示原始数据点。禁用此选项可以显著提高渲染性能，特别是对于大数据集。"
+        )
+        layout.addRow("", show_points_layout)
         
         # 方格网格线宽度
         self.grid_width_slider = QSlider(Qt.Horizontal)
@@ -618,7 +638,11 @@ class PerformanceSettingsDialog(QDialog):
         self.grid_width_label = QLabel(f"网格线宽度: {self.grid_width_slider.value()}")
         self.grid_width_slider.valueChanged.connect(
             lambda value: self.grid_width_label.setText(f"网格线宽度: {value}"))
-        layout.addRow(self.grid_width_label, self.grid_width_slider)
+        grid_width_layout = self._create_setting_with_info(
+            self.grid_width_label, self.grid_width_slider,
+            "控制3D网格线的粗细。较细的线条可以减少渲染负担。"
+        )
+        layout.addRow("", grid_width_layout)
         
         # 方格透明度
         self.carpet_alpha_slider = QSlider(Qt.Horizontal)
@@ -627,7 +651,11 @@ class PerformanceSettingsDialog(QDialog):
         self.carpet_alpha_label = QLabel(f"方格透明度: {self.carpet_alpha_slider.value() / 10}")
         self.carpet_alpha_slider.valueChanged.connect(
             lambda value: self.carpet_alpha_label.setText(f"方格透明度: {value / 10}"))
-        layout.addRow(self.carpet_alpha_label, self.carpet_alpha_slider)
+        carpet_alpha_layout = self._create_setting_with_info(
+            self.carpet_alpha_label, self.carpet_alpha_slider,
+            "控制3D方格的透明度。较低的透明度可以提高渲染性能。"
+        )
+        layout.addRow("", carpet_alpha_layout)
         
 
         
@@ -642,6 +670,63 @@ class PerformanceSettingsDialog(QDialog):
         
         layout.addRow("", button_layout)
         self.setLayout(layout)
+    
+    def _create_setting_with_info(self, label_widget, control_widget, tooltip_text):
+        """创建带有信息提示的设置项布局
+        
+        Args:
+            label_widget: 标签控件
+            control_widget: 控制控件（滑块、复选框等）
+            tooltip_text: 提示文本
+            
+        Returns:
+            QHBoxLayout: 包含标签、控件和信息按钮的布局
+        """
+        layout = QHBoxLayout()
+        
+        # 添加标签
+        layout.addWidget(label_widget)
+        
+        # 添加控件
+        layout.addWidget(control_widget)
+        
+        # 创建信息按钮
+        info_button = QPushButton("i")
+        info_button.setFixedSize(20, 20)
+        info_button.setStyleSheet("""
+            QPushButton {
+                border: 2px solid #ccc;
+                border-radius: 10px;
+                background-color: #f8f8f8;
+                font-size: 11px;
+                font-weight: bold;
+                color: #666;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+                border-color: #999;
+                color: #333;
+            }
+        """)
+        info_button.setToolTip(tooltip_text)
+        info_button.clicked.connect(lambda: self._show_info_dialog(tooltip_text))
+        
+        layout.addWidget(info_button)
+        
+        return layout
+    
+    def _show_info_dialog(self, info_text):
+        """显示信息对话框
+        
+        Args:
+            info_text: 要显示的信息文本
+        """
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("参数说明")
+        msg_box.setText(info_text)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.exec()
     
     def get_settings(self):
         """获取设置值"""
@@ -986,10 +1071,7 @@ class HeatmapViewer(QMainWindow):
         self.save_button.setEnabled(False)
         control_layout.addWidget(self.save_button)
         
-        # 添加帮助按钮
-        self.help_button = QPushButton('性能优化帮助')
-        self.help_button.clicked.connect(self.show_help_dialog)
-        control_layout.addWidget(self.help_button)
+
         
         self.left_layout.addWidget(control_group)
         
@@ -1021,6 +1103,7 @@ class HeatmapViewer(QMainWindow):
         if not file_paths:
             return
             
+        first_file_loaded = False
         for file_path in file_paths:
             # 弹出Z轴深度设置对话框
             z_depth, ok = QInputDialog.getDouble(
@@ -1049,8 +1132,26 @@ class HeatmapViewer(QMainWindow):
                     # 如果有至少一个数据集，启用3D按钮
                     if self.generator.get_dataset_count() > 0:
                         self.generate_3d_button.setEnabled(True)
+                    
+                    # 记录第一个成功加载的文件
+                    if not first_file_loaded:
+                        first_file_loaded = True
                 else:
                     self.status_label.setText(f'加载失败: {Path(file_path).name}')
+        
+        # 如果成功加载了至少一个文件，自动选中最近导入的文件并生成2D热力图
+        if first_file_loaded and self.csv_list_widget.count() > 0:
+            # 选中最后一个项目（最近导入的文件）
+            last_index = self.csv_list_widget.count() - 1
+            self.csv_list_widget.setCurrentRow(last_index)
+            self.current_dataset_index = last_index
+            
+            # 自动生成2D热力图
+            try:
+                self.generate_2d_heatmap()
+                self.status_label.setText('CSV文件已加载并自动生成2D热力图')
+            except Exception as e:
+                self.status_label.setText(f'自动生成2D热力图失败: {str(e)}')
     
     def remove_csv_file(self):
         """移除选中的CSV文件"""
@@ -1374,70 +1475,7 @@ class HeatmapViewer(QMainWindow):
             except Exception as e:
                 QMessageBox.critical(self, '错误', f'保存失败: {str(e)}')
     
-    def show_help_dialog(self):
-        """显示帮助对话框"""
-        help_dialog = QDialog(self)
-        help_dialog.setWindowTitle("性能优化帮助")
-        help_dialog.setMinimumSize(600, 400)
-        
-        layout = QVBoxLayout(help_dialog)
-        
-        # 创建帮助文本
-        help_text = """
-<h2>3D热力图性能优化指南</h2>
 
-<h3>常见问题</h3>
-<p>当处理大型数据集或多个数据集时，3D热力图生成可能会遇到以下问题：</p>
-<ul>
-    <li><b>程序崩溃或卡顿</b>: 通常是由于内存不足或处理能力有限</li>
-    <li><b>渲染缓慢</b>: 3D渲染需要大量GPU资源</li>
-    <li><b>浏览器显示白屏</b>: 可能是WebView加载大型HTML文件时超时</li>
-</ul>
-
-<h3>解决方案</h3>
-<p>您可以通过以下方式优化性能：</p>
-
-<h4>1. 使用性能设置</h4>
-<ul>
-    <li>降低<b>分辨率</b>: 减少网格密度，提高渲染速度</li>
-    <li>增加<b>数据抽样率</b>: 降低显示的数据点数量</li>
-    <li>减小<b>点大小</b>: 降低GPU渲染负担</li>
-    <li>禁用<b>表面渲染</b>: 仅显示数据点可大幅提高性能</li>
-</ul>
-
-<h4>2. 数据处理</h4>
-<ul>
-    <li>分批处理数据: 每次只加载和处理部分数据</li>
-    <li>降低CSV文件数量: 尝试合并相似深度的数据</li>
-    <li>预处理数据: 在导入前使用其他工具对数据进行降采样</li>
-</ul>
-
-<h4>3. 系统优化</h4>
-<ul>
-    <li>关闭其他程序: 释放更多系统资源</li>
-    <li>更新显卡驱动: 确保WebGL性能最优</li>
-    <li>使用独立显卡: 如果系统有集成显卡和独立显卡</li>
-</ul>
-"""
-        
-        help_label = QLabel()
-        help_label.setText(help_text)
-        help_label.setWordWrap(True)
-        help_label.setTextFormat(Qt.RichText)
-        help_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-        
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(help_label)
-        scroll_area.setWidgetResizable(True)
-        
-        layout.addWidget(scroll_area)
-        
-        # 添加关闭按钮
-        close_button = QPushButton("关闭")
-        close_button.clicked.connect(help_dialog.close)
-        layout.addWidget(close_button)
-        
-        help_dialog.exec_()
 
 
 def main():
