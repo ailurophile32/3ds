@@ -11,4 +11,5 @@ dependencies = [
     "scipy>=1.10.0",
     "pyside6>=6.5.0",
     "plotly>=5.0.0",
+    "kaleido==0.1.0.post1",
 ]

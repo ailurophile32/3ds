@@ -47,12 +47,13 @@ class CircularHeatmapGenerator:
         self.fig_3d = None  # 3D图形（包含所有深度层）
         self.plotly_fig: Optional[go.Figure] = None  # Plotly图形，添加类型提示
         self.performance_settings = {
-            'resolution': 60,       # 默认降低分辨率以提高性能
-            'max_points': 5000,     # 限制点的最大数量
-            'point_size': 5,        # 点大小
-            'alpha': 0.7,           # 透明度
-            'show_points': True,    # 是否显示原始数据点
-            'decimation': 2         # 数据抽样率 (取每 N 个点)
+            'resolution': 200,       # 默认降低分辨率以提高性能
+            'max_points': 10000,     # 限制点的最大数量
+            'point_size': 20,        # 点大小
+            'alpha': 1.0,           # 透明度
+            'show_points': False,   # 是否显示原始数据点
+            'decimation': 1,        # 数据抽样率 (取每 N 个点)
+            'z_scale': 0.5          # Z轴间距缩放比例
         }
         
     def load_csv(self, file_path: str, z_depth: float = 0.0) -> bool:
@@ -184,12 +185,12 @@ class CircularHeatmapGenerator:
         ax.set_ylim(y_center - radius * 1.1, y_center + radius * 1.1)
         ax.set_xlabel('X坐标 (μm)', fontsize=12, fontfamily='sans-serif')
         ax.set_ylabel('Y坐标 (μm)', fontsize=12, fontfamily='sans-serif')
-        ax.set_title(f'SiC应力分布2D圆形热力图 (Z={z_depth}μm)\n{file_name}', 
+        ax.set_title(f'SiC应力分布2D热力图 (Z={z_depth}μm)\n{file_name}', 
                      fontsize=14, fontweight='bold', fontfamily='sans-serif')
         
         # 添加颜色条
         cbar = self.fig_2d.colorbar(im, ax=ax, shrink=0.8)
-        cbar.set_label('应力值 (MPa)', fontsize=12, fontfamily='sans-serif')
+        cbar.set_label('应力 (MPa)', fontsize=12, fontfamily='sans-serif')
         
         # 添加原始数据点
         ax.scatter(x, y, c='white', s=1, alpha=0.3, edgecolors='none')
@@ -207,7 +208,7 @@ class CircularHeatmapGenerator:
         print(f"性能设置已更新: {settings}")
     
     def create_plotly_3d_heatmap(self) -> Optional[go.Figure]:
-        """使用Plotly创建3D热力图
+        """使用Plotly创建3D热力图 - 方格地毯图样式
         
         Returns:
             go.Figure or None: Plotly图形对象, 如果发生错误则返回None
@@ -217,18 +218,15 @@ class CircularHeatmapGenerator:
             return None
         
         try:
-            print("DEBUG: 开始创建 Plotly 3D 热力图...")
-            # 限制内存使用
-            max_points_total = 50000  # 总点数限制
-            current_total_points = 0
+            print("DEBUG: 开始创建 Plotly 3D 方格地毯热力图...")
             
             self.plotly_fig = make_subplots(
                 rows=1, cols=1,
                 specs=[[{'type': 'scene'}]],
-                subplot_titles=["SiC应力分布3D可视化"]
+                subplot_titles=[" "]
             )
             
-            # 为每个数据集添加一个散点图层
+            # 为每个数据集创建方格地毯图层
             for dataset_index, (data, z_depth, file_name) in enumerate(self.data_sets):
                 try:
                     print(f"DEBUG: 处理数据集 {dataset_index}: {file_name} at Z={z_depth}")
@@ -236,104 +234,138 @@ class CircularHeatmapGenerator:
                     y = data['Y'].values
                     values = data['Value'].values
                     
-                    # 根据已处理的总点数动态调整采样率
-                    original_points = len(x)
-                    remaining_points = max_points_total - current_total_points
-                    
-                    # 动态计算更合适的采样率
-                    if original_points > remaining_points and remaining_points > 0:
-                        decimation = max(self.performance_settings['decimation'], 
-                                        int(np.ceil(original_points / remaining_points)))
-                    else:
-                        decimation = self.performance_settings['decimation']
-                    
-                    if decimation > 1:
-                        indices = np.arange(0, len(x), decimation)
-                        x = x[indices]
-                        y = y[indices]
-                        values = values[indices]
-                        print(f"DEBUG: 数据集 {file_name} 已降采样: {len(indices)}/{original_points}, 采样率: 1/{decimation}")
-                    
-                    # 更新已处理的总点数
-                    current_total_points += len(x)
-                    
                     x_center = (x.max() + x.min()) / 2
                     y_center = (y.max() + y.min()) / 2
                     radius = max(x.max() - x.min(), y.max() - y.min()) / 2
                     
-                    z = np.full_like(x, z_depth)
+                    # 创建规则网格用于方格显示
+                    resolution = self.performance_settings['resolution']
+                    xi = np.linspace(x_center - radius, x_center + radius, resolution)
+                    yi = np.linspace(y_center - radius, y_center + radius, resolution)
+                    xi_grid, yi_grid = np.meshgrid(xi, yi)
                     
-                    distances = np.sqrt((x - x_center)**2 + (y - y_center)**2)
-                    mask = distances <= radius
-
-                    if not np.any(mask):
-                        print(f"警告: 数据集 {file_name} 在半径 {radius}μm 内没有数据点。跳过此数据集的散点图层。")
+                    # 数据插值到网格
+                    if len(x) < 4:
+                        print(f"警告: 数据集 {file_name} 点数过少 ({len(x)})，无法进行插值，跳过。")
                         continue
                     
-                    print(f"DEBUG: 为 {file_name} 添加 Scatter3d trace, 点数: {np.sum(mask)}")
-                    self.plotly_fig.add_trace(
-                        go.Scatter3d(
-                            x=x[mask],
-                            y=y[mask],
-                            z=z[mask],
-                            mode='markers',
-                            marker=dict(
-                                size=self.performance_settings['point_size'],
-                                color=values[mask],
-                                colorscale='RdBu_r',
-                                opacity=self.performance_settings['alpha'],
-                                colorbar=dict(
-                                    title="应力值 (MPa)",
-                                    thickness=20,
-                                ),
-                                showscale=(dataset_index == 0) # 仅为第一个轨迹显示色条
-                            ),
-                            text=[f"X: {vx:.1f}μm, Y: {vy:.1f}μm, Z: {vz:.1f}μm<br>应力: {vv:.2f} MPa" 
-                                for vx, vy, vz, vv in zip(x[mask], y[mask], z[mask], values[mask])],
-                            hoverinfo="text",
-                            name=f"{file_name} (Z={z_depth}μm)"
-                        )
-                    )
+                    zi_grid = griddata((x, y), values, (xi_grid, yi_grid), method='linear', fill_value=np.nan)
                     
-                    if self.performance_settings.get('show_surface', False):
-                        try:
-                            print(f"DEBUG: 为 {file_name} 添加 Surface trace")
-                            resolution = min(self.performance_settings['resolution'], 100)  # 限制最大分辨率
-                            xi = np.linspace(x_center - radius, x_center + radius, resolution)
-                            yi = np.linspace(y_center - radius, y_center + radius, resolution)
-                            xi_grid, yi_grid = np.meshgrid(xi, yi)
-                            
-                            print(f"DEBUG: griddata 输入点数 for {file_name}: X={len(x)}, Y={len(y)}")
-                            if len(x) < 4: # griddata cubic 方法至少需要4个点
-                                print(f"警告: 数据集 {file_name} 点数过少 ({len(x)})，无法进行 cubic 插值，跳过表面渲染。")
-                                continue
-
-                            # 使用更快的linear插值代替cubic以提高性能
-                            zi_grid = griddata((x, y), values, (xi_grid, yi_grid), method='linear', fill_value=np.nan)
-                            
-                            grid_distances = np.sqrt((xi_grid - x_center)**2 + (yi_grid - y_center)**2)
-                            mask_grid = grid_distances > radius
-                            zi_grid[mask_grid] = np.nan
-                            
-                            if np.all(np.isnan(zi_grid)):
-                                print(f"警告: 数据集 {file_name} 的插值表面全为 NaN，跳过表面渲染。")
-                                continue
-                                
+                    # 应用严格的圆形遮罩，完全去除方形边角
+                    grid_distances = np.sqrt((xi_grid - x_center)**2 + (yi_grid - y_center)**2)
+                    # 使用更严格的圆形边界，确保只显示中间圆形数据
+                    mask_grid = grid_distances > radius * 0.95  # 大幅收缩边界确保完全圆形
+                    zi_grid[mask_grid] = np.nan
+                    
+                    if np.all(np.isnan(zi_grid)):
+                        print(f"警告: 数据集 {file_name} 的插值网格全为 NaN，跳过。")
+                        continue
+                    
+                    # 创建方格地毯图效果 - 使用Surface但设置为平面
+                    print(f"DEBUG: 为 {file_name} 添加方格地毯图层")
+                    
+                    # 获取方格样式设置
+                    grid_width = self.performance_settings.get('grid_width', 1)
+                    carpet_alpha = self.performance_settings.get('carpet_alpha', 0.8)
+                    
+                    # 计算有效数据的范围用于颜色映射
+                    valid_data = zi_grid[~np.isnan(zi_grid)]
+                    if len(valid_data) > 0:
+                        vmin, vmax = np.min(valid_data), np.max(valid_data)
+                    else:
+                        vmin, vmax = 0, 1
+                    
+                    # 创建遮罩后的Z值，保持原始z_depth值不变
+                    z_masked = np.full_like(zi_grid, z_depth)
+                    z_masked[np.isnan(zi_grid)] = np.nan
+                    
+                    self.plotly_fig.add_trace(
+                         go.Surface(
+                             x=xi_grid,
+                             y=yi_grid,
+                             z=z_masked,  # 使用遮罩后的Z值
+                             surfacecolor=zi_grid,
+                             colorscale='RdBu_r',
+                             cmin=vmin,  # 设置颜色范围最小值
+                             cmax=vmax,  # 设置颜色范围最大值
+                             cauto=False,  # 禁用自动颜色范围
+                             opacity=carpet_alpha,
+                             showscale=(dataset_index == 0),  # 仅为第一个轨迹显示色条
+                             # 确保NaN值显示为透明
+                             connectgaps=False,  # 不连接NaN值之间的间隙
+                             hidesurface=False,  # 显示表面
+                             colorbar=dict(
+                                 title="应力值 (MPa)",
+                                 thickness=20,
+                                 x=1.02,
+                                 title_font=dict(size=12),
+                                 tickfont=dict(size=10)
+                             ) if dataset_index == 0 else None,
+                             name=f"{file_name} (Z={z_depth}μm)",
+                             # 设置表面样式为方格效果
+                             contours=dict(
+                                 x=dict(show=True, color="white", width=grid_width),
+                                 y=dict(show=True, color="white", width=grid_width),
+                                 z=dict(show=False)
+                             ),
+                             # 添加悬停信息
+                             hovertemplate="<b>%{fullData.name}</b><br>" +
+                                         "X: %{x:.1f}μm<br>" +
+                                         "Y: %{y:.1f}μm<br>" +
+                                         "Z: %{z:.1f}μm<br>" +
+                                         "应力: %{surfacecolor:.2f} MPa<extra></extra>",
+                             # 添加光照效果使方格更明显
+                             lighting=dict(
+                                 ambient=0.8,
+                                 diffuse=0.8,
+                                 specular=0.1
+                             ),
+                             lightposition=dict(
+                                 x=100,
+                                 y=100,
+                                 z=1000
+                             )
+                         )
+                     )
+                    
+                    # 可选：添加原始数据点作为参考
+                    if self.performance_settings.get('show_points', False):
+                        # 对原始数据进行采样以减少点数
+                        decimation = self.performance_settings['decimation']
+                        if decimation > 1:
+                            indices = np.arange(0, len(x), decimation)
+                            x_sampled = x[indices]
+                            y_sampled = y[indices]
+                            values_sampled = values[indices]
+                            z_sampled = np.full_like(x_sampled, z_depth + 0.1)  # 稍微抬高避免重叠
+                        else:
+                            x_sampled, y_sampled, values_sampled = x, y, values
+                            z_sampled = np.full_like(x_sampled, z_depth + 0.1)
+                        
+                        # 应用严格的圆形遮罩，与表面图保持一致
+                        distances = np.sqrt((x_sampled - x_center)**2 + (y_sampled - y_center)**2)
+                        mask = distances <= radius *0.95  # 使用与表面图相同的严格边界
+                        
+                        if np.any(mask):
                             self.plotly_fig.add_trace(
-                                go.Surface(
-                                    x=xi_grid,
-                                    y=yi_grid,
-                                    z=np.full_like(zi_grid, z_depth),
-                                    surfacecolor=zi_grid,
-                                    colorscale='RdBu_r',
-                                    opacity=0.7,
-                                    showscale=False,
-                                    name=f"{file_name} 表面 (Z={z_depth}μm)"
+                                go.Scatter3d(
+                                    x=x_sampled[mask],
+                                    y=y_sampled[mask],
+                                    z=z_sampled[mask],
+                                    mode='markers',
+                                    marker=dict(
+                                        size=2,
+                                        color='white',
+                                        opacity=0.6,
+                                        line=dict(width=0.5, color='black')
+                                    ),
+                                    showlegend=False,
+                                    hoverinfo='skip',
+                                    name=f"{file_name} 数据点"
                                 )
                             )
-                        except Exception as surface_error:
-                            print(f"警告: 为数据集 {file_name} 创建表面时出错: {str(surface_error)}")
-                            continue
+                    
+                    # 方格地毯图已经替代了原有的表面渲染功能
                 except Exception as dataset_error:
                     print(f"警告: 处理数据集 {file_name} 时出错: {str(dataset_error)}")
                     continue
@@ -344,12 +376,13 @@ class CircularHeatmapGenerator:
                     xaxis_title='X坐标 (μm)',
                     yaxis_title='Y坐标 (μm)',
                     zaxis_title='Z深度 (μm)',
-                    aspectmode='data', 
+                    aspectmode='manual',  # 改为手动模式以自定义比例
+                    aspectratio=dict(x=1, y=1, z=1.5 * self.performance_settings.get('z_scale', 1.0)),  # 通过调节z轴显示比例来控制间距视觉效果
                     camera=dict(
                         eye=dict(x=1.5, y=1.5, z=1)
                     )
                 ),
-                title_text="SiC应力分布3D热力图 (多层)",
+                title_text="SiC应力3D切片",
                 margin=dict(l=0, r=0, t=50, b=0),
                 legend=dict(
                     yanchor="top",
@@ -368,7 +401,7 @@ class CircularHeatmapGenerator:
                 autosize=True       # 自动调整大小
             )
             
-            print("DEBUG: Plotly 3D 热力图创建完成。")
+            print("DEBUG: Plotly 3D 方格地毯热力图创建完成。")
             return self.plotly_fig
 
         except MemoryError:
@@ -390,31 +423,31 @@ class CircularHeatmapGenerator:
         """
         if figure_type == '2d':
             if self.fig_2d is None:
-                raise ValueError("请先生成2D热力图")
+                raise ValueError("请先加载2D热力图")
             self.fig_2d.savefig(output_path, dpi=dpi, bbox_inches='tight')
             print(f"2D热力图已保存到: {output_path}")
         elif figure_type == '3d':
             if self.fig_3d is None:
-                raise ValueError("请先生成3D热力图")
+                raise ValueError("请先加载3D热力图")
             self.fig_3d.savefig(output_path, dpi=dpi, bbox_inches='tight')
             print(f"3D热力图已保存到: {output_path}")
         elif figure_type == 'plotly':
             if self.plotly_fig is None:
-                raise ValueError("请先生成Plotly热力图")
+                raise ValueError("请先加载Plotly热力图")
             
-            # 根据文件扩展名保存为不同格式
+            # 使用Plotly原生导出功能，根据文件扩展名保存为不同格式
             ext = Path(output_path).suffix.lower()
             if ext == '.html':
                 pio.write_html(self.plotly_fig, output_path)
-            elif ext in ['.png', '.jpg', '.jpeg']:
-                pio.write_image(self.plotly_fig, output_path)
-            elif ext == '.pdf':
-                pio.write_image(self.plotly_fig, output_path)
+            elif ext in ['.png', '.jpg', '.jpeg', '.pdf', '.svg']:
+                # 直接使用plotly的原生图片导出功能
+                pio.write_image(self.plotly_fig, output_path, width=1920, height=1080, scale=2)
             elif ext == '.json':
                 with open(output_path, 'w', encoding='utf-8') as f:
                     f.write(json.dumps(self.plotly_fig.to_dict()))
             else:
-                pio.write_image(self.plotly_fig, output_path)
+                # 默认导出为PNG格式
+                pio.write_image(self.plotly_fig, output_path, width=1920, height=1080, scale=2)
             
             print(f"Plotly热力图已保存到: {output_path}")
         else:
@@ -501,13 +534,28 @@ class PerformanceSettingsDialog(QDialog):
         
         # 显示原始数据点
         self.show_points_checkbox = QCheckBox()
-        self.show_points_checkbox.setChecked(self.settings.get('show_points', True))
+        self.show_points_checkbox.setChecked(self.settings.get('show_points', False))  # 默认关闭，因为方格图更清晰
         layout.addRow("显示原始数据点:", self.show_points_checkbox)
         
-        # 显示表面
-        self.show_surface_checkbox = QCheckBox()
-        self.show_surface_checkbox.setChecked(self.settings.get('show_surface', False))
-        layout.addRow("显示表面渲染:", self.show_surface_checkbox)
+        # 方格网格线宽度
+        self.grid_width_slider = QSlider(Qt.Horizontal)
+        self.grid_width_slider.setRange(1, 5)
+        self.grid_width_slider.setValue(self.settings.get('grid_width', 1))
+        self.grid_width_label = QLabel(f"网格线宽度: {self.grid_width_slider.value()}")
+        self.grid_width_slider.valueChanged.connect(
+            lambda value: self.grid_width_label.setText(f"网格线宽度: {value}"))
+        layout.addRow(self.grid_width_label, self.grid_width_slider)
+        
+        # 方格透明度
+        self.carpet_alpha_slider = QSlider(Qt.Horizontal)
+        self.carpet_alpha_slider.setRange(3, 10)
+        self.carpet_alpha_slider.setValue(int(self.settings.get('carpet_alpha', 1) * 10))
+        self.carpet_alpha_label = QLabel(f"方格透明度: {self.carpet_alpha_slider.value() / 10}")
+        self.carpet_alpha_slider.valueChanged.connect(
+            lambda value: self.carpet_alpha_label.setText(f"方格透明度: {value / 10}"))
+        layout.addRow(self.carpet_alpha_label, self.carpet_alpha_slider)
+        
+
         
         # 按钮
         button_layout = QHBoxLayout()
@@ -529,7 +577,9 @@ class PerformanceSettingsDialog(QDialog):
             'alpha': self.alpha_slider.value() / 10,
             'decimation': self.decimation_combo.currentData(),
             'show_points': self.show_points_checkbox.isChecked(),
-            'show_surface': self.show_surface_checkbox.isChecked(),
+            'grid_width': self.grid_width_slider.value(),
+            'carpet_alpha': self.carpet_alpha_slider.value() / 10,
+
         }
 
 
@@ -693,7 +743,7 @@ class HeatmapViewer(QMainWindow):
         
     def init_ui(self):
         """初始化用户界面"""
-        self.setWindowTitle('SiC应力圆形热力图生成器 - 多层3D可视化')
+        self.setWindowTitle('SiC三维应力分析')
         self.setGeometry(100, 100, 1400, 900)
         
         # 设置应用程序字体
@@ -762,6 +812,20 @@ class HeatmapViewer(QMainWindow):
         generate_buttons.addWidget(self.generate_3d_button)
         
         control_layout.addLayout(generate_buttons)
+        
+        # Z轴间距控制
+        z_control_layout = QHBoxLayout()
+        z_control_layout.addWidget(QLabel('Z轴间距:'))
+        
+        self.z_scale_slider = QSlider(Qt.Horizontal)
+        self.z_scale_slider.setRange(1, 50)  # 0.1倍到5.0倍
+        self.z_scale_slider.setValue(int(self.generator.performance_settings.get('z_scale', 0.5) * 10))
+        self.z_scale_label = QLabel(f"{self.z_scale_slider.value() / 10:.1f}x")
+        self.z_scale_slider.valueChanged.connect(self.on_z_scale_changed)
+        
+        z_control_layout.addWidget(self.z_scale_slider)
+        z_control_layout.addWidget(self.z_scale_label)
+        control_layout.addLayout(z_control_layout)
         
         # 添加性能设置按钮
         self.performance_button = QPushButton('3D性能设置')
@@ -907,6 +971,16 @@ class HeatmapViewer(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, '错误', f'生成2D热力图失败: {str(e)}')
     
+    def on_z_scale_changed(self, value):
+        """Z轴间距滑块值变化时的处理"""
+        z_scale = value / 10
+        self.z_scale_label.setText(f"{z_scale:.1f}x")
+        self.generator.update_performance_settings({'z_scale': z_scale})
+        
+        # 如果已经生成了3D图，实时更新
+        if self.current_view_type == 'plotly' and self.plotly_view is not None:
+            self.generate_3d_heatmap()
+    
     def show_performance_settings(self):
         """显示性能设置对话框"""
         dialog = PerformanceSettingsDialog(self, self.generator.performance_settings)
@@ -1027,8 +1101,8 @@ class HeatmapViewer(QMainWindow):
             default_name = 'circular_heatmap_2d.png'
             file_filter = 'PNG文件 (*.png);;PDF文件 (*.pdf);;SVG文件 (*.svg)'
         elif figure_type == 'plotly':
-            default_name = 'stress_3d_visualization.html'
-            file_filter = 'HTML文件 (*.html);;PNG文件 (*.png);;PDF文件 (*.pdf);;JSON文件 (*.json)'
+            default_name = 'stress_3d_visualization.png'
+            file_filter = 'PNG文件 (*.png);;PDF文件 (*.pdf);;SVG文件 (*.svg);;HTML文件 (*.html);;JSON文件 (*.json)'
         
         file_path, _ = QFileDialog.getSaveFileName(
             self, '保存热力图', default_name, file_filter
