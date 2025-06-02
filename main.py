@@ -55,6 +55,12 @@ class CircularHeatmapGenerator:
             'decimation': 1,        # 数据抽样率 (取每 N 个点)
             'z_scale': 0.5          # Z轴间距缩放比例
         }
+        # 添加色标卡范围设置
+        self.colorbar_settings = {
+            'auto_range': True,     # 是否自动设置范围
+            'vmin': None,          # 手动设置的最小值
+            'vmax': None           # 手动设置的最大值
+        }
         
     def load_csv(self, file_path: str, z_depth: float = 0.0) -> bool:
         """加载CSV文件
@@ -123,6 +129,43 @@ class CircularHeatmapGenerator:
         """获取数据集数量"""
         return len(self.data_sets)
     
+    def update_colorbar_settings(self, settings: Dict[str, Any]):
+        """更新色标卡设置
+        
+        Args:
+            settings: 色标卡设置字典
+        """
+        self.colorbar_settings.update(settings)
+        print(f"色标卡设置已更新: {settings}")
+    
+    def get_data_range(self, dataset_index: int = None) -> Tuple[float, float]:
+        """获取数据的值范围
+        
+        Args:
+            dataset_index: 数据集索引，如果为None则计算所有数据集的范围
+            
+        Returns:
+            Tuple[float, float]: (最小值, 最大值)
+        """
+        if len(self.data_sets) == 0:
+            return (0.0, 1.0)
+        
+        if dataset_index is not None:
+            if 0 <= dataset_index < len(self.data_sets):
+                data, _, _ = self.data_sets[dataset_index]
+                return (data['Value'].min(), data['Value'].max())
+            else:
+                return (0.0, 1.0)
+        else:
+            # 计算所有数据集的范围
+            all_values = []
+            for data, _, _ in self.data_sets:
+                all_values.extend(data['Value'].values)
+            if all_values:
+                return (min(all_values), max(all_values))
+            else:
+                return (0.0, 1.0)
+    
     def create_circular_heatmap_2d(self, dataset_index: int = 0, resolution: int = 200, figsize: Tuple[int, int] = (10, 10)) -> Figure:
         """创建特定数据集的2D圆形热力图
         
@@ -170,10 +213,18 @@ class CircularHeatmapGenerator:
         self.fig_2d = Figure(figsize=figsize, facecolor='white')
         ax = self.fig_2d.add_subplot(111)
         
+        # 确定色标卡范围
+        if self.colorbar_settings['auto_range']:
+            vmin, vmax = None, None  # matplotlib自动设置
+        else:
+            vmin = self.colorbar_settings['vmin']
+            vmax = self.colorbar_settings['vmax']
+        
         # 绘制热力图
         im = ax.imshow(zi, extent=[x_center-radius, x_center+radius, 
                                   y_center-radius, y_center+radius],
-                      origin='lower', cmap='RdYlBu_r', aspect='equal')
+                      origin='lower', cmap='RdYlBu_r', aspect='equal',
+                      vmin=vmin, vmax=vmax)
         
         # 添加圆形边界
         circle = Circle((x_center, y_center), radius, fill=False, 
@@ -827,6 +878,58 @@ class HeatmapViewer(QMainWindow):
         z_control_layout.addWidget(self.z_scale_label)
         control_layout.addLayout(z_control_layout)
         
+        # 色标卡控制区域
+        colorbar_group = QGroupBox("2D热力图色标卡设置")
+        colorbar_layout = QVBoxLayout(colorbar_group)
+        
+        # 自动/手动切换
+        self.auto_range_checkbox = QCheckBox('自动设置色标卡范围')
+        self.auto_range_checkbox.setChecked(True)
+        self.auto_range_checkbox.stateChanged.connect(self.on_auto_range_changed)
+        colorbar_layout.addWidget(self.auto_range_checkbox)
+        
+        # 手动范围设置
+        manual_range_layout = QFormLayout()
+        
+        self.vmin_spinbox = QDoubleSpinBox()
+        self.vmin_spinbox.setRange(-99999.0, 99999.0)
+        self.vmin_spinbox.setDecimals(2)
+        self.vmin_spinbox.setValue(0.0)
+        self.vmin_spinbox.setEnabled(False)
+        self.vmin_spinbox.valueChanged.connect(self.on_colorbar_range_changed)
+        manual_range_layout.addRow('最小值 (MPa):', self.vmin_spinbox)
+        
+        self.vmax_spinbox = QDoubleSpinBox()
+        self.vmax_spinbox.setRange(-99999.0, 99999.0)
+        self.vmax_spinbox.setDecimals(2)
+        self.vmax_spinbox.setValue(100.0)
+        self.vmax_spinbox.setEnabled(False)
+        self.vmax_spinbox.valueChanged.connect(self.on_colorbar_range_changed)
+        manual_range_layout.addRow('最大值 (MPa):', self.vmax_spinbox)
+        
+        colorbar_layout.addLayout(manual_range_layout)
+        
+        # 数据范围显示
+        self.data_range_label = QLabel('当前数据范围: 未加载数据')
+        self.data_range_label.setStyleSheet('color: gray; font-size: 10px;')
+        colorbar_layout.addWidget(self.data_range_label)
+        
+        # 快速设置按钮
+        quick_buttons_layout = QHBoxLayout()
+        
+        self.reset_range_button = QPushButton('重置为数据范围')
+        self.reset_range_button.clicked.connect(self.reset_to_data_range)
+        self.reset_range_button.setEnabled(False)
+        quick_buttons_layout.addWidget(self.reset_range_button)
+        
+        self.apply_range_button = QPushButton('应用设置')
+        self.apply_range_button.clicked.connect(self.apply_colorbar_settings)
+        self.apply_range_button.setEnabled(False)
+        quick_buttons_layout.addWidget(self.apply_range_button)
+        
+        colorbar_layout.addLayout(quick_buttons_layout)
+        control_layout.addWidget(colorbar_group)
+        
         # 添加性能设置按钮
         self.performance_button = QPushButton('3D性能设置')
         self.performance_button.clicked.connect(self.show_performance_settings)
@@ -891,6 +994,13 @@ class HeatmapViewer(QMainWindow):
                     self.z_input_button.setEnabled(True)
                     self.generate_2d_button.setEnabled(True)
                     
+                    # 启用色标卡控制
+                    self.reset_range_button.setEnabled(not self.auto_range_checkbox.isChecked())
+                    self.apply_range_button.setEnabled(True)
+                    
+                    # 更新数据范围显示
+                    self.update_data_range_display()
+                    
                     # 如果有至少一个数据集，启用3D按钮
                     if self.generator.get_dataset_count() > 0:
                         self.generate_3d_button.setEnabled(True)
@@ -910,9 +1020,14 @@ class HeatmapViewer(QMainWindow):
                 self.z_input_button.setEnabled(False)
                 self.generate_2d_button.setEnabled(False)
                 self.generate_3d_button.setEnabled(False)
+                self.reset_range_button.setEnabled(False)
+                self.apply_range_button.setEnabled(False)
+                self.data_range_label.setText('当前数据范围: 未加载数据')
                 self.status_label.setText('请添加CSV文件开始')
             else:
                 self.status_label.setText('已移除CSV文件')
+                # 更新数据范围显示
+                self.update_data_range_display()
     
     def on_csv_selection_changed(self):
         """CSV列表选择项变更时的处理"""
@@ -921,10 +1036,14 @@ class HeatmapViewer(QMainWindow):
             self.remove_button.setEnabled(True)
             self.z_input_button.setEnabled(True)
             self.generate_2d_button.setEnabled(True)
+            
+            # 更新数据范围显示
+            self.update_data_range_display()
         else:
             self.remove_button.setEnabled(False)
             self.z_input_button.setEnabled(False)
             self.generate_2d_button.setEnabled(False)
+            self.data_range_label.setText('当前数据范围: 未选择数据')
     
     def set_z_depth(self):
         """设置Z轴深度"""
@@ -980,6 +1099,77 @@ class HeatmapViewer(QMainWindow):
         # 如果已经生成了3D图，实时更新
         if self.current_view_type == 'plotly' and self.plotly_view is not None:
             self.generate_3d_heatmap()
+    
+    def on_auto_range_changed(self, state):
+        """自动范围复选框状态变化时的处理"""
+        auto_range = state == Qt.Checked
+        
+        # 启用/禁用手动输入框
+        self.vmin_spinbox.setEnabled(not auto_range)
+        self.vmax_spinbox.setEnabled(not auto_range)
+        self.reset_range_button.setEnabled(not auto_range and self.generator.get_dataset_count() > 0)
+        
+        # 更新生成器设置
+        self.generator.update_colorbar_settings({'auto_range': auto_range})
+        
+        if auto_range:
+            self.status_label.setText('已切换到自动色标卡范围')
+        else:
+            self.status_label.setText('已切换到手动色标卡范围')
+            # 如果有数据，自动填充当前数据范围
+            if self.generator.get_dataset_count() > 0:
+                self.update_data_range_display()
+    
+    def on_colorbar_range_changed(self):
+        """色标卡范围值变化时的处理"""
+        if not self.auto_range_checkbox.isChecked():
+            vmin = self.vmin_spinbox.value()
+            vmax = self.vmax_spinbox.value()
+            
+            # 确保最小值小于最大值
+            if vmin >= vmax:
+                if self.sender() == self.vmin_spinbox:
+                    self.vmax_spinbox.setValue(vmin + 1.0)
+                else:
+                    self.vmin_spinbox.setValue(vmax - 1.0)
+            
+            # 更新生成器设置
+            self.generator.update_colorbar_settings({
+                'vmin': self.vmin_spinbox.value(),
+                'vmax': self.vmax_spinbox.value()
+            })
+    
+    def reset_to_data_range(self):
+        """重置色标卡范围为当前数据范围"""
+        current_row = self.csv_list_widget.currentRow()
+        if current_row >= 0:
+            vmin, vmax = self.generator.get_data_range(current_row)
+            self.vmin_spinbox.setValue(vmin)
+            self.vmax_spinbox.setValue(vmax)
+            self.status_label.setText(f'已重置色标卡范围为数据范围: {vmin:.2f} - {vmax:.2f} MPa')
+    
+    def apply_colorbar_settings(self):
+        """应用色标卡设置并重新生成2D图"""
+        if self.current_view_type == '2d':
+            self.generate_2d_heatmap()
+            self.status_label.setText('色标卡设置已应用')
+        else:
+            self.status_label.setText('请先生成2D热力图')
+    
+    def update_data_range_display(self):
+        """更新数据范围显示"""
+        current_row = self.csv_list_widget.currentRow()
+        if current_row >= 0 and self.generator.get_dataset_count() > 0:
+            vmin, vmax = self.generator.get_data_range(current_row)
+            self.data_range_label.setText(f'当前数据范围: {vmin:.2f} - {vmax:.2f} MPa')
+            
+            # 如果是手动模式且输入框为默认值，自动填充数据范围
+            if not self.auto_range_checkbox.isChecked():
+                if self.vmin_spinbox.value() == 0.0 and self.vmax_spinbox.value() == 100.0:
+                    self.vmin_spinbox.setValue(vmin)
+                    self.vmax_spinbox.setValue(vmax)
+        else:
+            self.data_range_label.setText('当前数据范围: 未加载数据')
     
     def show_performance_settings(self):
         """显示性能设置对话框"""
