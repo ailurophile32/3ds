@@ -358,9 +358,22 @@ class CircularHeatmapGenerator:
         # 添加颜色条
         cbar = self.fig_2d.colorbar(im, ax=ax, shrink=0.8)
         cbar.set_label('应力 (MPa)', fontsize=12, fontfamily='sans-serif')
+        # 设置色标卡的层级较低，确保鼠标悬停标签显示在上方
+        cbar.ax.set_zorder(1)
         
         # 添加原始数据点
         ax.scatter(x, y, c='white', s=1, alpha=0.3, edgecolors='none')
+        
+        # 存储数据用于鼠标悬停功能
+        self.fig_2d._heatmap_data = {
+            'xi_grid': xi_grid,
+            'yi_grid': yi_grid,
+            'zi': zi,
+            'x_center': x_center,
+            'y_center': y_center,
+            'radius': radius,
+            'z_depth': z_depth
+        }
         
         self.fig_2d.tight_layout()
         return self.fig_2d
@@ -991,6 +1004,7 @@ class HeatmapViewer(QMainWindow):
         self.generator = CircularHeatmapGenerator()
         self.current_dataset_index = 0
         self.plotly_view: Optional[PlotlyWebView] = None # 类型提示
+        self.hover_annotation = None  # 用于显示悬停信息的文本注释
         self.init_ui()
         
     def init_ui(self):
@@ -1327,6 +1341,10 @@ class HeatmapViewer(QMainWindow):
             
             # 创建新的2D画布
             self.current_canvas = FigureCanvas(fig)
+            
+            # 添加鼠标悬停事件处理
+            self._setup_mouse_hover_events()
+            
             self.visualization_layout.addWidget(self.current_canvas)
             self.current_view_type = '2d'
             
@@ -1606,6 +1624,135 @@ class HeatmapViewer(QMainWindow):
                 self.status_label.setText(f'已保存{figure_type.upper()}图像到: {Path(file_path).name}')
             except Exception as e:
                 QMessageBox.critical(self, '错误', f'保存失败: {str(e)}')
+    
+    def _setup_mouse_hover_events(self):
+        """设置鼠标悬停事件处理"""
+        if self.current_canvas and hasattr(self.current_canvas.figure, '_heatmap_data'):
+            # 连接鼠标移动事件
+            self.current_canvas.mpl_connect('motion_notify_event', self.on_mouse_move)
+            # 连接鼠标离开事件
+            self.current_canvas.mpl_connect('axes_leave_event', self.on_mouse_leave)
+            print("鼠标悬停事件已设置")
+    
+    def on_mouse_move(self, event):
+        """鼠标移动事件处理
+        
+        Args:
+            event: matplotlib鼠标事件对象
+        """
+        if event.inaxes is None or not hasattr(self.current_canvas.figure, '_heatmap_data'):
+            return
+        
+        try:
+            # 获取热力图数据
+            heatmap_data = self.current_canvas.figure._heatmap_data
+            xi_grid = heatmap_data['xi_grid']
+            yi_grid = heatmap_data['yi_grid']
+            zi = heatmap_data['zi']
+            x_center = heatmap_data['x_center']
+            y_center = heatmap_data['y_center']
+            radius = heatmap_data['radius']
+            z_depth = heatmap_data['z_depth']
+            
+            # 获取鼠标位置
+            x_mouse, y_mouse = event.xdata, event.ydata
+            
+            # 检查鼠标是否在圆形区域内
+            distance_from_center = np.sqrt((x_mouse - x_center)**2 + (y_mouse - y_center)**2)
+            if distance_from_center > radius:
+                self._hide_hover_annotation()
+                return
+            
+            # 找到最近的网格点
+            # 计算在网格中的索引
+            resolution = xi_grid.shape[0]
+            x_extent = xi_grid.max() - xi_grid.min()
+            y_extent = yi_grid.max() - yi_grid.min()
+            
+            # 将鼠标坐标转换为网格索引
+            i = int((y_mouse - yi_grid.min()) / y_extent * (resolution - 1))
+            j = int((x_mouse - xi_grid.min()) / x_extent * (resolution - 1))
+            
+            # 确保索引在有效范围内
+            i = max(0, min(i, resolution - 1))
+            j = max(0, min(j, resolution - 1))
+            
+            # 获取对应的压力值
+            pressure_value = zi[i, j]
+            
+            # 如果压力值是NaN（在圆形区域外），隐藏注释
+            if np.isnan(pressure_value):
+                self._hide_hover_annotation()
+                return
+            
+            # 显示悬停信息
+            self._show_hover_annotation(x_mouse, y_mouse, pressure_value, z_depth, event.inaxes)
+            
+        except Exception as e:
+            print(f"鼠标悬停事件处理错误: {e}")
+    
+    def on_mouse_leave(self, event):
+        """鼠标离开坐标轴事件处理
+        
+        Args:
+            event: matplotlib鼠标事件对象
+        """
+        self._hide_hover_annotation()
+    
+    def _show_hover_annotation(self, x: float, y: float, pressure: float, z_depth: float, ax):
+        """显示悬停信息注释
+        
+        Args:
+            x: X坐标
+            y: Y坐标
+            pressure: 压力值
+            z_depth: Z轴深度
+            ax: matplotlib坐标轴对象
+        """
+        try:
+            # 移除之前的注释
+            self._hide_hover_annotation()
+            
+            # 创建悬停信息文本
+            hover_text = f'X: {x:.1f} μm\nY: {y:.1f} μm\nZ: {z_depth:.1f} μm\n应力: {pressure:.2f} MPa'
+            
+            # 创建注释，跟随鼠标显示在左上方
+            self.hover_annotation = ax.annotate(
+                hover_text,
+                xy=(x, y),
+                xytext=(-80, 30),  # 偏移到鼠标左上方
+                textcoords='offset points',
+                bbox=dict(
+                    boxstyle='round,pad=0.5',
+                    facecolor='yellow',
+                    alpha=0.9,
+                    edgecolor='black',
+                    linewidth=1
+                ),
+                fontsize=10,
+                fontfamily='sans-serif',
+                ha='left',
+                va='bottom',
+                zorder=10000  # 设置更高的层级
+            )
+            
+            # 刷新画布
+            self.current_canvas.draw_idle()
+            
+        except Exception as e:
+            print(f"显示悬停注释错误: {e}")
+    
+    def _hide_hover_annotation(self):
+        """隐藏悬停信息注释"""
+        try:
+            if self.hover_annotation is not None:
+                self.hover_annotation.remove()
+                self.hover_annotation = None
+                # 刷新画布
+                if self.current_canvas:
+                    self.current_canvas.draw_idle()
+        except Exception as e:
+            print(f"隐藏悬停注释错误: {e}")
     
 
 
