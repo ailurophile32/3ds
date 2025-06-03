@@ -1143,7 +1143,12 @@ class HeatmapViewer(QMainWindow):
         self.vmin_spinbox.setDecimals(2)
         self.vmin_spinbox.setValue(0.0)
         self.vmin_spinbox.setEnabled(False)
+        # 记录初始值，用于检测是否真的发生了变化
+        self._vmin_last_value = 0.0
+        # 只连接valueChanged用于实时验证，不刷新图像
         self.vmin_spinbox.valueChanged.connect(self.on_colorbar_range_changed)
+        # 连接回车键事件用于应用更改
+        self.vmin_spinbox.editingFinished.connect(self.on_colorbar_range_editing_finished)
         manual_range_layout.addRow('最小值 (MPa):', self.vmin_spinbox)
         
         self.vmax_spinbox = QDoubleSpinBox()
@@ -1151,7 +1156,12 @@ class HeatmapViewer(QMainWindow):
         self.vmax_spinbox.setDecimals(2)
         self.vmax_spinbox.setValue(100.0)
         self.vmax_spinbox.setEnabled(False)
+        # 记录初始值，用于检测是否真的发生了变化
+        self._vmax_last_value = 100.0
+        # 只连接valueChanged用于实时验证，不刷新图像
         self.vmax_spinbox.valueChanged.connect(self.on_colorbar_range_changed)
+        # 连接回车键事件用于应用更改
+        self.vmax_spinbox.editingFinished.connect(self.on_colorbar_range_editing_finished)
         manual_range_layout.addRow('最大值 (MPa):', self.vmax_spinbox)
         
         colorbar_layout.addLayout(manual_range_layout)
@@ -1395,8 +1405,46 @@ class HeatmapViewer(QMainWindow):
             elif self.current_view_type == 'plotly':
                 self.generate_3d_heatmap()
     
+    def on_colorbar_range_editing_finished(self):
+        """色标卡范围值编辑完成时的处理（回车键或失去焦点）"""
+        if not self.auto_range_checkbox.isChecked():
+            vmin = self.vmin_spinbox.value()
+            vmax = self.vmax_spinbox.value()
+            
+            # 检查值是否真的发生了变化
+            vmin_changed = abs(vmin - self._vmin_last_value) > 1e-6
+            vmax_changed = abs(vmax - self._vmax_last_value) > 1e-6
+            
+            # 只有在值真正发生变化时才刷新图像
+            if vmin_changed or vmax_changed:
+                # 确保最小值小于最大值
+                if vmin >= vmax:
+                    if self.sender() == self.vmin_spinbox:
+                        self.vmax_spinbox.setValue(vmin + 1.0)
+                        vmax = vmin + 1.0
+                    else:
+                        self.vmin_spinbox.setValue(vmax - 1.0)
+                        vmin = vmax - 1.0
+                
+                # 更新记录的上次值
+                self._vmin_last_value = vmin
+                self._vmax_last_value = vmax
+                
+                # 更新生成器设置
+                self.generator.update_colorbar_settings({
+                    'vmin': vmin,
+                    'vmax': vmax
+                })
+                
+                # 重新生成当前视图
+                if self.generator.get_dataset_count() > 0:
+                    if self.current_view_type == '2d':
+                        self.generate_2d_heatmap()
+                    elif self.current_view_type == 'plotly':
+                        self.generate_3d_heatmap()
+    
     def on_colorbar_range_changed(self):
-        """色标卡范围值变化时的处理"""
+        """色标卡范围值变化时的处理（仅更新设置，不刷新图像）"""
         if not self.auto_range_checkbox.isChecked():
             vmin = self.vmin_spinbox.value()
             vmax = self.vmax_spinbox.value()
@@ -1408,18 +1456,11 @@ class HeatmapViewer(QMainWindow):
                 else:
                     self.vmin_spinbox.setValue(vmax - 1.0)
             
-            # 更新生成器设置
+            # 仅更新生成器设置，不重新生成图像
             self.generator.update_colorbar_settings({
                 'vmin': self.vmin_spinbox.value(),
                 'vmax': self.vmax_spinbox.value()
             })
-            
-            # 重新生成当前视图
-            if self.generator.get_dataset_count() > 0:
-                if self.current_view_type == '2d':
-                    self.generate_2d_heatmap()
-                elif self.current_view_type == 'plotly':
-                    self.generate_3d_heatmap()
     
     def on_smart_range_changed(self, state):
         """智能范围计算复选框状态变化时的处理"""
@@ -1451,11 +1492,19 @@ class HeatmapViewer(QMainWindow):
             vmin, vmax = self.generator.get_data_range(current_row, smart_range=smart_range)
             self.vmin_spinbox.setValue(vmin)
             self.vmax_spinbox.setValue(vmax)
+            # 更新记录的上次值
+            self._vmin_last_value = vmin
+            self._vmax_last_value = vmax
             range_type = "智能" if smart_range else "原始"
             self.status_label.setText(f'已重置色标卡范围为{range_type}数据范围: {vmin:.2f} - {vmax:.2f} MPa')
     
     def apply_colorbar_settings(self):
         """应用色标卡设置并重新生成当前视图"""
+        # 更新记录的上次值
+        if not self.auto_range_checkbox.isChecked():
+            self._vmin_last_value = self.vmin_spinbox.value()
+            self._vmax_last_value = self.vmax_spinbox.value()
+        
         if self.current_view_type == '2d':
             self.generate_2d_heatmap()
             self.status_label.setText('色标卡设置已应用到热力图')
