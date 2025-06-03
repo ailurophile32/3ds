@@ -444,7 +444,8 @@ class CircularHeatmapGenerator:
                     
                     # 获取方格样式设置
                     grid_width = self.performance_settings.get('grid_width', 1)
-                    carpet_alpha = self.performance_settings.get('carpet_alpha', 0.8)
+                    # 使用主透明度设置，如果没有设置则使用方格透明度作为后备
+                    alpha_value = self.performance_settings.get('alpha', self.performance_settings.get('carpet_alpha', 1.0))
                     
                     # 使用与2D热力图相同的色标卡设置
                     if self.colorbar_settings.get('auto_range', True):
@@ -474,7 +475,7 @@ class CircularHeatmapGenerator:
                              cmin=vmin,  # 设置颜色范围最小值
                              cmax=vmax,  # 设置颜色范围最大值
                              cauto=False,  # 禁用自动颜色范围
-                             opacity=carpet_alpha,
+                             opacity=alpha_value,
                              showscale=(dataset_index == 0),  # 仅为第一个轨迹显示色条
                              # 确保NaN值显示为透明
                              connectgaps=False,  # 不连接NaN值之间的间隙
