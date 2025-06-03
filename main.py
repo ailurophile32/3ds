@@ -76,15 +76,13 @@ class CircularHeatmapGenerator:
         """
         # matplotlib到Plotly的色标映射
         colormap_mapping = {
-            'seismic': 'RdBu_r',  # 使用反向RdBu实现红白蓝效果
+            'coolwarm': 'RdBu_r',  # 使用反向RdBu实现蓝白红效果
             'RdYlBu_r': 'RdYlBu_r',
-            'coolwarm': 'RdBu',
             'Spectral': 'Spectral',
-            'jet': 'Jet',
-            'rainbow': 'Rainbow'
+            'jet': 'Jet'
         }
         
-        return colormap_mapping.get(matplotlib_cmap, 'RdBu')
+        return colormap_mapping.get(matplotlib_cmap, 'RdBu_r')
         
     def load_csv(self, file_path: str, z_depth: float = 0.0) -> bool:
         """加载CSV文件
@@ -1123,12 +1121,10 @@ class HeatmapViewer(QMainWindow):
         
         # 添加精选的色标选项
         colormap_options = [
-            ('seismic', '红白蓝 - 默认'),
-            ('RdYlBu_r', '红黄蓝(反向)'),
-            ('coolwarm', '蓝白红'),
+            ('coolwarm', '蓝白红 - 推荐'),
+            ('RdYlBu_r', '蓝黄红'),
             ('Spectral', '光谱色'),
-            ('jet', 'Jet'),
-            ('rainbow', '彩虹色')
+            ('jet', 'Jet')
         ]
         
         for value, display_name in colormap_options:
