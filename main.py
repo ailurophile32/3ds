@@ -76,8 +76,8 @@ class CircularHeatmapGenerator:
         """
         # matplotlib到Plotly的色标映射
         colormap_mapping = {
-            'seismic': 'RdBu',
-            'RdYlBu_r': 'RdBu_r',
+            'seismic': 'RdBu_r',  # 使用反向RdBu实现红白蓝效果
+            'RdYlBu_r': 'RdYlBu_r',
             'coolwarm': 'RdBu',
             'Spectral': 'Spectral',
             'jet': 'Jet',
@@ -448,12 +448,19 @@ class CircularHeatmapGenerator:
                     grid_width = self.performance_settings.get('grid_width', 1)
                     carpet_alpha = self.performance_settings.get('carpet_alpha', 0.8)
                     
-                    # 计算有效数据的范围用于颜色映射
-                    valid_data = zi_grid[~np.isnan(zi_grid)]
-                    if len(valid_data) > 0:
-                        vmin, vmax = np.min(valid_data), np.max(valid_data)
+                    # 使用与2D热力图相同的色标卡设置
+                    if self.colorbar_settings.get('auto_range', True):
+                        # 自动模式：使用智能范围计算或原始数据范围
+                        smart_range = self.colorbar_settings.get('smart_range', True)
+                        if dataset_index == 0:  # 只在第一个数据集时计算全局范围
+                            self._global_vmin, self._global_vmax = self.get_data_range(smart_range=smart_range)
+                        vmin, vmax = self._global_vmin, self._global_vmax
                     else:
-                        vmin, vmax = 0, 1
+                        # 手动模式：使用用户设置的范围
+                        vmin = self.colorbar_settings.get('vmin', 0)
+                        vmax = self.colorbar_settings.get('vmax', 1)
+                        if dataset_index == 0:  # 缓存手动设置的范围
+                            self._global_vmin, self._global_vmax = vmin, vmax
                     
                     # 创建遮罩后的Z值，保持原始z_depth值不变
                     z_masked = np.full_like(zi_grid, z_depth)
@@ -1094,7 +1101,7 @@ class HeatmapViewer(QMainWindow):
         control_layout.addLayout(z_control_layout)
         
         # 色标卡控制区域
-        colorbar_group = QGroupBox("2D热力图色标卡设置")
+        colorbar_group = QGroupBox("热力图色标卡设置")
         colorbar_layout = QVBoxLayout(colorbar_group)
         
         # 自动/手动切换
@@ -1384,6 +1391,13 @@ class HeatmapViewer(QMainWindow):
             # 如果有数据，自动填充当前数据范围
             if self.generator.get_dataset_count() > 0:
                 self.update_data_range_display()
+        
+        # 重新生成当前视图
+        if self.generator.get_dataset_count() > 0:
+            if self.current_view_type == '2d':
+                self.generate_2d_heatmap()
+            elif self.current_view_type == 'plotly':
+                self.generate_3d_heatmap()
     
     def on_colorbar_range_changed(self):
         """色标卡范围值变化时的处理"""
@@ -1403,6 +1417,13 @@ class HeatmapViewer(QMainWindow):
                 'vmin': self.vmin_spinbox.value(),
                 'vmax': self.vmax_spinbox.value()
             })
+            
+            # 重新生成当前视图
+            if self.generator.get_dataset_count() > 0:
+                if self.current_view_type == '2d':
+                    self.generate_2d_heatmap()
+                elif self.current_view_type == 'plotly':
+                    self.generate_3d_heatmap()
     
     def on_smart_range_changed(self, state):
         """智能范围计算复选框状态变化时的处理"""
@@ -1416,9 +1437,14 @@ class HeatmapViewer(QMainWindow):
         else:
             self.status_label.setText('已禁用智能范围计算 - 使用原始数据范围')
         
-        # 如果当前是自动模式且有数据，更新显示
+        # 如果当前是自动模式且有数据，更新显示并重新生成图形
         if self.auto_range_checkbox.isChecked() and self.generator.get_dataset_count() > 0:
             self.update_data_range_display()
+            # 重新生成当前视图
+            if self.current_view_type == '2d':
+                self.generate_2d_heatmap()
+            elif self.current_view_type == 'plotly':
+                self.generate_3d_heatmap()
     
     def reset_to_data_range(self):
         """重置色标卡范围为当前数据范围"""
@@ -1433,12 +1459,15 @@ class HeatmapViewer(QMainWindow):
             self.status_label.setText(f'已重置色标卡范围为{range_type}数据范围: {vmin:.2f} - {vmax:.2f} MPa')
     
     def apply_colorbar_settings(self):
-        """应用色标卡设置并重新生成2D图"""
+        """应用色标卡设置并重新生成当前视图"""
         if self.current_view_type == '2d':
             self.generate_2d_heatmap()
-            self.status_label.setText('色标卡设置已应用')
+            self.status_label.setText('色标卡设置已应用到热力图')
+        elif self.current_view_type == 'plotly':
+            self.generate_3d_heatmap()
+            self.status_label.setText('色标卡设置已应用到热力图')
         else:
-            self.status_label.setText('请先生成2D热力图')
+            self.status_label.setText('请先生成热力图')
     
     def on_colormap_changed(self):
         """色标样式变化时的处理"""
@@ -1452,10 +1481,10 @@ class HeatmapViewer(QMainWindow):
             if self.generator.get_dataset_count() > 0:
                 if self.current_view_type == '2d':
                     self.generate_2d_heatmap()
-                    self.status_label.setText(f'已切换到色标: {self.colormap_combo.currentText()}')
-                elif self.current_view_type == '3d':
+                    self.status_label.setText(f'热力图色标已切换到: {self.colormap_combo.currentText()}')
+                elif self.current_view_type == 'plotly':
                     self.generate_3d_heatmap()
-                    self.status_label.setText(f'3D图色标已切换到: {self.colormap_combo.currentText()}')
+                    self.status_label.setText(f'热力图色标已切换到: {self.colormap_combo.currentText()}')
                 else:
                     self.status_label.setText(f'色标已设置为: {self.colormap_combo.currentText()}')
             else:
