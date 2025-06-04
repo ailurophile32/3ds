@@ -79,6 +79,8 @@ class HeatmapView(BaseView):
         # CSV列表
         self.csv_list_widget = QListWidget()
         self.csv_list_widget.itemSelectionChanged.connect(self._on_csv_selection_changed)
+        # 添加双击事件处理，双击文件名自动生成2D热力图
+        self.csv_list_widget.itemDoubleClicked.connect(self._on_csv_double_clicked)
         csv_layout.addWidget(self.csv_list_widget)
         
         # CSV操作按钮
@@ -349,6 +351,13 @@ class HeatmapView(BaseView):
                 # 鼠标按下时获得焦点
                 self.z_scale_slider.setFocus()
         return super().eventFilter(obj, event)
+    
+    def _on_csv_double_clicked(self, item):
+        """处理CSV文件双击事件，自动生成2D热力图"""
+        row = self.csv_list_widget.row(item)
+        if row >= 0:
+            self.trigger_callback('on_generate_2d', row)
+            self.update_status(f'双击生成2D热力图: {item.text()}')
     
     def _on_generate_2d_clicked(self):
         """处理生成2D热力图按钮点击事件"""
