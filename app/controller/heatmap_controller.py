@@ -80,6 +80,7 @@ class HeatmapController(BaseController):
         self.view.register_callback('on_generate_2d', self.on_generate_2d)
         self.view.register_callback('on_generate_3d', self.on_generate_3d)
         self.view.register_callback('on_save_heatmap', self.on_save_heatmap)
+        self.view.register_callback('on_z_scale_changed', self.on_z_scale_changed)
         self.view.register_callback('on_colormap_changed', self.on_colormap_changed)
         self.view.register_callback('on_auto_range_changed', self.on_auto_range_changed)
         self.view.register_callback('on_smart_range_changed', self.on_smart_range_changed)
@@ -242,6 +243,16 @@ class HeatmapController(BaseController):
                 self.on_generate_2d(self.view.current_dataset_index)
             elif self.view.current_view_type == 'plotly':
                 self.on_generate_3d()
+    
+    def on_z_scale_changed(self, z_scale):
+        """处理Z轴缩放比例变更事件"""
+        self.model.update_performance_settings({'z_scale': z_scale})
+        
+        # 如果已经生成了3D图，实时更新
+        if self.view.current_view_type == 'plotly' and self.view.plotly_view is not None:
+            self.on_generate_3d()
+        
+        self.view.update_status(f'Z轴缩放比例已更改为: {z_scale:.1f}')
     
     def on_auto_range_changed(self, auto_range: bool):
         """处理自动范围设置变更事件

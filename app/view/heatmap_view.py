@@ -44,6 +44,7 @@ class HeatmapView(BaseView):
             'on_generate_2d': None,
             'on_generate_3d': None,
             'on_save_heatmap': None,
+            'on_z_scale_changed': None,
             'on_colormap_changed': None,
             'on_auto_range_changed': None,
             'on_smart_range_changed': None,
@@ -206,6 +207,80 @@ class HeatmapView(BaseView):
         control_layout.addWidget(self.save_button)
         
         self.left_layout.addWidget(control_group)
+
+        # Z轴缩放比例控制区域
+        z_scale_group = QGroupBox("Z轴缩放设置")
+        z_scale_layout = QVBoxLayout(z_scale_group)
+
+        # Z轴缩放比例标签
+        self.z_scale_label = QLabel("Z轴缩放比例: 0.5")
+        self.z_scale_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        z_scale_layout.addWidget(self.z_scale_label)
+
+        # Z轴缩放滑块容器
+        z_scale_slider_layout = QHBoxLayout()
+        
+        # 最小值标签
+        min_label = QLabel("0.1")
+        min_label.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+        z_scale_slider_layout.addWidget(min_label)
+        
+        # 滑块
+        self.z_scale_slider = QSlider(Qt.Orientation.Horizontal)
+        self.z_scale_slider.setMinimum(1)   # 对应 0.1
+        self.z_scale_slider.setMaximum(20)  # 对应 2.0
+        self.z_scale_slider.setValue(5)     # 默认 0.5
+        self.z_scale_slider.setTickInterval(2)
+        self.z_scale_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        # 连接滑块事件：拖动时只更新标签，松开时才刷新图像
+        self.z_scale_slider.valueChanged.connect(self._on_z_scale_value_changed)
+        self.z_scale_slider.sliderReleased.connect(self._on_z_scale_released)
+        
+        # 防止鼠标移出区域后的误操作
+        self.z_scale_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.z_scale_slider.installEventFilter(self)
+        
+        # 美化滑块样式
+        self.z_scale_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #bdc3c7;
+                height: 8px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ecf0f1, stop:1 #bdc3c7);
+                margin: 2px 0;
+                border-radius: 4px;
+            }
+            QSlider::handle:horizontal {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #3498db, stop:1 #2980b9);
+                border: 1px solid #2c3e50;
+                width: 18px;
+                margin: -2px 0;
+                border-radius: 9px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5dade2, stop:1 #3498db);
+            }
+            QSlider::sub-page:horizontal {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3498db, stop:1 #2980b9);
+                border: 1px solid #2c3e50;
+                height: 8px;
+                border-radius: 4px;
+            }
+            QSlider::add-page:horizontal {
+                background: #ecf0f1;
+                border: 1px solid #bdc3c7;
+                height: 8px;
+                border-radius: 4px;
+            }
+        """)
+        
+        z_scale_slider_layout.addWidget(self.z_scale_slider)
+        
+        # 最大值标签
+        max_label = QLabel("2.0")
+        max_label.setStyleSheet("color: #7f8c8d; font-size: 10px;")
+        z_scale_slider_layout.addWidget(max_label)
+        z_scale_layout.addLayout(z_scale_slider_layout)
+        self.left_layout.addWidget(z_scale_group)
         
         # 状态标签
         self.status_label = QLabel('请添加CSV文件开始')
@@ -246,9 +321,34 @@ class HeatmapView(BaseView):
             self.trigger_callback('on_csv_selection_changed', row)
     
     def _on_z_input_button_clicked(self):
-        """处理Z轴深度设置按钮点击事件"""
-        if self.csv_list_widget.currentRow() >= 0:
-            self.trigger_callback('on_set_z_depth', self.csv_list_widget.currentRow())
+        selected_items = self.csv_list_widget.selectedItems()
+        if not selected_items:
+            QMessageBox.warning(self, "警告", "请选择一个CSV文件！")
+            return
+        selected_csv_path = selected_items[0].data(Qt.UserRole)
+        self.callbacks["on_z_input_requested"](selected_csv_path)
+
+    def _on_z_scale_value_changed(self, value):
+        """滑块值变化时只更新标签显示，不刷新图像"""
+        z_scale = value / 10.0
+        self.z_scale_label.setText(f"Z轴缩放比例: {z_scale:.1f}")
+    
+    def _on_z_scale_released(self):
+        """滑块松开时才刷新图像"""
+        value = self.z_scale_slider.value()
+        z_scale = value / 10.0
+        self.callbacks["on_z_scale_changed"](z_scale)
+    
+    def eventFilter(self, obj, event):
+        """事件过滤器，防止鼠标移出滑块区域后的误操作"""
+        if obj == self.z_scale_slider:
+            if event.type() == event.Type.Leave:
+                # 鼠标离开滑块区域时，确保滑块失去焦点
+                self.z_scale_slider.clearFocus()
+            elif event.type() == event.Type.MouseButtonPress:
+                # 鼠标按下时获得焦点
+                self.z_scale_slider.setFocus()
+        return super().eventFilter(obj, event)
     
     def _on_generate_2d_clicked(self):
         """处理生成2D热力图按钮点击事件"""
