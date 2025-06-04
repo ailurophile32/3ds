@@ -203,6 +203,11 @@ class ZDepthInputDialog(QDialog):
         
         layout.addRow("", button_layout)
         self.setLayout(layout)
+        
+        # 设置默认焦点和选中状态
+        self.z_spinbox.setFocus()  # 设置输入框为默认焦点
+        self.z_spinbox.selectAll()  # 选中输入框中的所有文本
+        self.ok_button.setDefault(True)  # 设置确定按钮为默认按钮
     
     def get_z_depth(self) -> float:
         """获取Z轴深度值"""

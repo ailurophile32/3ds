@@ -12,6 +12,33 @@
 - 支持数据降采样以提高性能
 - 可保存高质量的PNG、PDF或SVG图像
 
+## 技术栈
+
+- Python 3.12+
+- PySide6 (用于GUI)
+- Pandas (数据处理)
+- NumPy (数值计算)
+- Matplotlib (2D绘图)
+- Plotly (3D绘图)
+- SciPy (科学计算)
+- Kaleido (图像导出)
+- uv (包管理和虚拟环境)
+
+## 项目结构
+
+项目采用分层结构，主要目录如下：
+
+```
+app/                  # 核心应用代码
+├── controller/       # 控制器层 (MVC)
+├── model/            # 模型层 (MVC)
+├── view/             # 视图层 (MVC)
+└── utils/            # 通用工具模块
+main.py               # 应用主入口
+README.md             # 项目说明
+pyproject.toml        # 项目配置和依赖
+```
+
 ## 安装方法
 
 ### 使用uv（推荐）
@@ -39,8 +66,9 @@ uv venv
 source .venv/bin/activate
 
 # 安装依赖
-uv pip install -r requirements.txt
-# 或者使用pyproject.toml
+# 使用pyproject.toml (推荐)
+uv sync
+# 或者手动安装项目
 uv pip install -e .
 ```
 
@@ -57,7 +85,7 @@ venv\Scripts\activate
 source venv/bin/activate
 
 # 安装依赖
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ## 运行方法
@@ -113,8 +141,9 @@ python main.py data1.csv data2.csv data3.csv
 
 ## 系统需求
 
-- Python 3.9+
-- 支持WebGL的现代浏览器内核可实现更好的3D性能
+- Python 3.12+ (根据 `pyproject.toml`)
+- 依赖库见 `pyproject.toml`
+- 支持WebGL的现代浏览器内核可实现更好的3D性能 (如果使用了基于Web的3D渲染，如Plotly的某些模式)
 
 ## 许可证
 
