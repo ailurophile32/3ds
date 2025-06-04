@@ -23,7 +23,8 @@ class DefaultSettings:
             'alpha': 1.0,           # 透明度
             'show_points': False,   # 是否显示原始数据点
             'decimation': 1,        # 数据抽样率 (取每 N 个点)   
-            'grid_width': 1         # 网格线宽度
+            'grid_width': 5,        # 网格线宽度
+            'z_scale': 0.5          # Z轴缩放比例默认值
         }
     
     @staticmethod
@@ -66,4 +67,4 @@ class DefaultSettings:
             'RdYlBu_r': 'RdYlBu_r',
             'Spectral': 'Spectral',
             'jet': 'Jet'
-        } 
+        }

@@ -49,7 +49,6 @@ class HeatmapView(BaseView):
             'on_smart_range_changed': None,
             'on_reset_range': None,
             'on_apply_range': None,
-            'on_z_scale_changed': None,
             'on_show_performance_settings': None,
             'on_csv_selection_changed': None
         })
@@ -119,20 +118,6 @@ class HeatmapView(BaseView):
         generate_buttons.addWidget(self.generate_3d_button)
         
         control_layout.addLayout(generate_buttons)
-        
-        # Z轴间距控制
-        z_control_layout = QHBoxLayout()
-        z_control_layout.addWidget(QLabel('Z轴间距:'))
-        
-        self.z_scale_slider = QSlider(Qt.Horizontal)
-        self.z_scale_slider.setRange(1, 50)  # 0.1倍到5.0倍
-        self.z_scale_slider.setValue(5)  # 默认0.5
-        self.z_scale_label = QLabel(f"{self.z_scale_slider.value() / 10:.1f}x")
-        self.z_scale_slider.valueChanged.connect(self._on_z_scale_changed)
-        
-        z_control_layout.addWidget(self.z_scale_slider)
-        z_control_layout.addWidget(self.z_scale_label)
-        control_layout.addLayout(z_control_layout)
         
         # 色标卡控制区域
         colorbar_group = QGroupBox("热力图色标卡设置")
@@ -311,12 +296,6 @@ class HeatmapView(BaseView):
             'vmax': self.vmax_spinbox.value()
         }
         self.trigger_callback('on_apply_range', settings)
-    
-    def _on_z_scale_changed(self, value):
-        """处理Z轴间距变更事件"""
-        z_scale = value / 10.0  # 将整数值转换为浮点数
-        self.z_scale_label.setText(f"{z_scale:.1f}x")
-        self.trigger_callback('on_z_scale_changed', z_scale)
     
     def _on_performance_button_clicked(self):
         """处理性能设置按钮点击事件"""
@@ -626,4 +605,4 @@ class HeatmapView(BaseView):
         dialog = ZDepthInputDialog(self, current_z)
         if dialog.exec():
             return dialog.get_z_depth(), True
-        return current_z, False 
+        return current_z, False

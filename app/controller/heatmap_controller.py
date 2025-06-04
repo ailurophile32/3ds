@@ -85,7 +85,6 @@ class HeatmapController(BaseController):
         self.view.register_callback('on_smart_range_changed', self.on_smart_range_changed)
         self.view.register_callback('on_reset_range', self.on_reset_range)
         self.view.register_callback('on_apply_range', self.on_apply_range)
-        self.view.register_callback('on_z_scale_changed', self.on_z_scale_changed)
         self.view.register_callback('on_show_performance_settings', self.on_show_performance_settings)
         self.view.register_callback('on_csv_selection_changed', self.on_csv_selection_changed)
     
@@ -327,17 +326,6 @@ class HeatmapController(BaseController):
         else:
             self.view.update_status('请先生成热力图')
     
-    def on_z_scale_changed(self, z_scale: float):
-        """处理Z轴缩放比例变更事件
-        
-        Args:
-            z_scale: Z轴缩放比例
-        """
-        self.model.update_performance_settings({'z_scale': z_scale})
-        
-        # 如果已经生成了3D图，实时更新
-        if self.view.current_view_type == 'plotly' and self.view.plotly_view is not None:
-            self.on_generate_3d()
     
     def on_show_performance_settings(self):
         """处理性能设置对话框事件"""
@@ -382,4 +370,4 @@ class HeatmapController(BaseController):
                         'vmax': vmax
                     })
         else:
-            self.view.update_data_range_display(0.0, 1.0) 
+            self.view.update_data_range_display(0.0, 1.0)

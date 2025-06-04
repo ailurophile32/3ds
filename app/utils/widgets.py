@@ -364,19 +364,6 @@ class PerformanceSettingsDialog(QDialog):
         )
         layout.addRow("", grid_width_layout)
         
-        # Z轴缩放比例
-        self.z_scale_slider = QSlider(Qt.Horizontal)
-        self.z_scale_slider.setRange(1, 50)
-        self.z_scale_slider.setValue(int(self.settings.get('z_scale', 0.5) * 10))
-        self.z_scale_label = QLabel(f"Z轴缩放比例: {self.z_scale_slider.value() / 10}")
-        self.z_scale_slider.valueChanged.connect(
-            lambda value: self.z_scale_label.setText(f"Z轴缩放比例: {value / 10}"))
-        z_scale_layout = self._create_setting_with_info(
-            self.z_scale_label, self.z_scale_slider,
-            "控制3D图中Z轴（深度）的缩放比例。调整此值可以改变各层之间的距离显示。"
-        )
-        layout.addRow("", z_scale_layout)
-        
         # 按钮
         button_layout = QHBoxLayout()
         self.ok_button = QPushButton("确定")
@@ -443,5 +430,4 @@ class PerformanceSettingsDialog(QDialog):
             'decimation': self.decimation_combo.currentData(),
             'show_points': self.show_points_checkbox.isChecked(),
             'grid_width': self.grid_width_slider.value(),
-            'z_scale': self.z_scale_slider.value() / 10,
         }
