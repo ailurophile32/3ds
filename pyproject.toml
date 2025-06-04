@@ -1,9 +1,14 @@
 [project]
 name = "3ds"
-version = "0.1.0"
-description = "3D stress visualization with circular heatmaps"
+version = "1.0.0"
+description = "无"
 readme = "README.md"
-requires-python = ">=3.12.9"
+requires-python = ">=3.12"
+license = {text = " "}
+authors = [
+    {name = "wbs"}
+]
+
 dependencies = [
     "pandas>=2.0.0",
     "numpy>=1.24.0",
@@ -11,5 +16,5 @@ dependencies = [
     "scipy>=1.10.0",
     "pyside6>=6.5.0",
     "plotly>=5.0.0",
-    "kaleido==0.1.0.post1",
+    "kaleido>=0.1.0",
 ]
