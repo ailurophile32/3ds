@@ -332,12 +332,20 @@ class HeatmapView(BaseView):
             self.trigger_callback('on_csv_selection_changed', row)
     
     def _on_z_input_button_clicked(self):
+        """处理设置Z轴深度按钮点击事件"""
         selected_items = self.csv_list_widget.selectedItems()
         if not selected_items:
             QMessageBox.warning(self, "警告", "请选择一个CSV文件！")
             return
-        selected_csv_path = selected_items[0].data(Qt.UserRole)
-        self.callbacks["on_z_input_requested"](selected_csv_path)
+        
+        # 获取选中项的索引
+        selected_index = self.csv_list_widget.row(selected_items[0])
+        
+        # 调用正确的回调函数
+        if self.callbacks.get('on_set_z_depth'):
+            self.callbacks['on_set_z_depth'](selected_index)
+        else:
+            QMessageBox.warning(self, "错误", "回调函数未注册！")
 
     def _on_z_scale_value_changed(self, value):
         """滑块值变化时只更新标签显示，不刷新图像"""
