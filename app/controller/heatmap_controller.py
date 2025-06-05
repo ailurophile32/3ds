@@ -88,6 +88,10 @@ class HeatmapController(BaseController):
         self.view.register_callback('on_apply_range', self.on_apply_range)
         self.view.register_callback('on_show_performance_settings', self.on_show_performance_settings)
         self.view.register_callback('on_csv_selection_changed', self.on_csv_selection_changed)
+        self.view.register_callback('on_flip_x_axis', self.on_flip_x_axis)
+        
+        # 初始化视图状态，同步模型的翻转状态到视图
+        self.view.update_flip_x_status(self.model._x_axis_flipped)
     
     def on_load_csv(self):
         """处理加载CSV文件事件"""
@@ -381,4 +385,32 @@ class HeatmapController(BaseController):
                         'vmax': vmax
                     })
         else:
-            self.view.update_data_range_display(0.0, 1.0)
+            self.view.update_data_range_display(0, 0)
+    
+    def on_flip_x_axis(self):
+        """处理翻转X轴事件"""
+        try:
+            # 翻转所有数据集的X轴数据
+            self.model.flip_x_axis()
+            
+            # 更新视图中勾选框的状态
+            is_flipped = getattr(self.model, '_x_axis_flipped', False)
+            self.view.update_flip_x_status(is_flipped)
+            
+            # 更新状态
+            flip_status = "已翻转" if is_flipped else "已恢复"
+            self.view.update_status(f"X轴{flip_status}，影响所有数据集")
+            
+            # 如果当前有显示的图形，重新生成
+            if self.view.current_view_type == '2d':
+                # 重新生成2D图
+                current_index = self.view.current_dataset_index
+                if 0 <= current_index < self.model.get_dataset_count():
+                    self.on_generate_2d(current_index)
+            elif self.view.current_view_type == 'plotly':
+                # 重新生成3D图
+                self.on_generate_3d()
+                
+        except Exception as e:
+            self.view.message_handler.show_error('翻转X轴失败', f'翻转X轴时发生错误：{str(e)}')
+            print(f"翻转X轴错误: {e}")

@@ -17,14 +17,14 @@ class DefaultSettings:
             Dict[str, Any]: 性能设置字典
         """
         return {
-            'resolution': 100,
-            'max_points': 10000,
-            'point_size': 3,
-            'alpha': 0.8,
-            'show_points': False,
-            'decimation': 1,
-            'grid_width': 5,
-            'z_scale': 0.5
+            'resolution': 200,      # 最大分辨率，获得最精细的网格
+            'max_points': 50000,    # 增加最大点数限制
+            'point_size': 20,       # 最大点大小，更清晰可见
+            'alpha': 0.85,          # 适度透明，减少反射和泛白效果
+            'show_points': False,    # 显示原始数据点，获得完整信息
+            'decimation': 1,        # 不进行数据抽样，保持完整精度
+            'grid_width': 5,        # 最大网格线宽度，更清晰的网格
+            'z_scale': 0.5          # 增加Z轴缩放，更好的3D效果
         }
     
     @staticmethod

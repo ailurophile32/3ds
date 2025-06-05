@@ -51,7 +51,8 @@ class HeatmapView(BaseView):
             'on_reset_range': None,
             'on_apply_range': None,
             'on_show_performance_settings': None,
-            'on_csv_selection_changed': None
+            'on_csv_selection_changed': None,
+            'on_flip_x_axis': None
         })
         
         self.init_ui()
@@ -121,6 +122,13 @@ class HeatmapView(BaseView):
         generate_buttons.addWidget(self.generate_3d_button)
         
         control_layout.addLayout(generate_buttons)
+        
+        # X轴翻转控制区域
+        self.flip_x_checkbox = QCheckBox('翻转X轴方向')
+        self.flip_x_checkbox.stateChanged.connect(self._on_flip_x_changed)
+        self.flip_x_checkbox.setEnabled(False)
+        self.flip_x_checkbox.setToolTip('将X轴方向从递增改为递减，同时镜像图像数据')
+        control_layout.addWidget(self.flip_x_checkbox)
         
         # 色标卡控制区域
         colorbar_group = QGroupBox("热力图色标卡设置")
@@ -318,6 +326,7 @@ class HeatmapView(BaseView):
         self.remove_button.setEnabled(has_selection)
         self.z_input_button.setEnabled(has_selection)
         self.generate_2d_button.setEnabled(has_selection)
+        self.flip_x_button.setEnabled(has_selection)
         
         if has_selection:
             self.trigger_callback('on_csv_selection_changed', row)
@@ -410,6 +419,10 @@ class HeatmapView(BaseView):
         """处理性能设置按钮点击事件"""
         self.trigger_callback('on_show_performance_settings')
     
+    def _on_flip_x_changed(self, state):
+        """处理翻转X轴勾选框状态变化事件"""
+        self.trigger_callback('on_flip_x_axis')
+    
     def update_dataset_list(self, data_sets: List[Tuple]):
         """更新数据集列表显示
         
@@ -426,6 +439,7 @@ class HeatmapView(BaseView):
         self.z_input_button.setEnabled(has_datasets)
         self.generate_2d_button.setEnabled(has_datasets)
         self.generate_3d_button.setEnabled(has_datasets)
+        self.flip_x_checkbox.setEnabled(has_datasets)
         self.reset_range_button.setEnabled(has_datasets and not self.auto_range_checkbox.isChecked())
         self.apply_range_button.setEnabled(has_datasets)
         
@@ -701,6 +715,17 @@ class HeatmapView(BaseView):
         )
         
         return file_path
+    
+    def update_flip_x_status(self, is_flipped: bool):
+        """更新X轴翻转勾选框状态
+        
+        Args:
+            is_flipped: 是否已翻转X轴
+        """
+        # 暂时断开信号连接，避免触发回调
+        self.flip_x_checkbox.blockSignals(True)
+        self.flip_x_checkbox.setChecked(is_flipped)
+        self.flip_x_checkbox.blockSignals(False)
     
     def show_z_depth_dialog(self, current_z: float = 0.0) -> Tuple[float, bool]:
         """显示Z轴深度设置对话框

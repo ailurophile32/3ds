@@ -267,19 +267,14 @@ class SettingItem:
         return layout
 
 
+from .config import DefaultSettings
+
 class PerformanceSettingsDialog(QDialog):
-    """性能设置对话框"""
-    
     def __init__(self, parent=None, current_settings=None, message_handler=None):
-        """初始化性能设置对话框
-        
-        Args:
-            parent: 父窗口
-            current_settings: 当前性能设置
-            message_handler: 消息处理器
-        """
         super().__init__(parent)
-        self.settings = current_settings or {}
+        # 使用配置文件的默认值作为fallback
+        self.default_settings = DefaultSettings.get_performance_settings()
+        self.settings = current_settings or self.default_settings
         self.message_handler = message_handler
         self.init_ui()
     
@@ -291,7 +286,9 @@ class PerformanceSettingsDialog(QDialog):
         # 分辨率滑块
         self.resolution_slider = QSlider(Qt.Horizontal)
         self.resolution_slider.setRange(20, 200)
-        self.resolution_slider.setValue(self.settings.get('resolution', 100))
+        self.resolution_slider.setValue(
+            self.settings.get('resolution', self.default_settings['resolution'])
+        )
         self.resolution_label = QLabel(f"分辨率: {self.resolution_slider.value()}")
         self.resolution_slider.valueChanged.connect(
             lambda value: self.resolution_label.setText(f"分辨率: {value}"))
@@ -304,7 +301,7 @@ class PerformanceSettingsDialog(QDialog):
         # 点大小滑块
         self.point_size_slider = QSlider(Qt.Horizontal)
         self.point_size_slider.setRange(1, 20)
-        self.point_size_slider.setValue(self.settings.get('point_size', 5))
+        self.point_size_slider.setValue(self.settings.get('point_size', 20))  # 默认最大值
         self.point_size_label = QLabel(f"点大小: {self.point_size_slider.value()}")
         self.point_size_slider.valueChanged.connect(
             lambda value: self.point_size_label.setText(f"点大小: {value}"))
@@ -317,7 +314,7 @@ class PerformanceSettingsDialog(QDialog):
         # 透明度滑块
         self.alpha_slider = QSlider(Qt.Horizontal)
         self.alpha_slider.setRange(1, 10)
-        self.alpha_slider.setValue(int(self.settings.get('alpha', 0.7) * 10))
+        self.alpha_slider.setValue(int(self.settings.get('alpha', 1.0) * 10))  # 默认最大值（完全不透明）
         self.alpha_label = QLabel(f"透明度: {self.alpha_slider.value() / 10}")
         self.alpha_slider.valueChanged.connect(
             lambda value: self.alpha_label.setText(f"透明度: {value / 10}"))
@@ -333,8 +330,8 @@ class PerformanceSettingsDialog(QDialog):
         for option in decimation_options:
             self.decimation_combo.addItem(f"1/{option}", option)
         # 设置当前值
-        current_decimation = self.settings.get('decimation', 2)
-        index = decimation_options.index(current_decimation) if current_decimation in decimation_options else 1
+        current_decimation = self.settings.get('decimation', 1)  # 默认不抽样，保持最高精度
+        index = decimation_options.index(current_decimation) if current_decimation in decimation_options else 0
         self.decimation_combo.setCurrentIndex(index)
         decimation_layout = self._create_setting_with_info(
             QLabel("数据抽样率:"), self.decimation_combo,
@@ -344,7 +341,7 @@ class PerformanceSettingsDialog(QDialog):
         
         # 显示原始数据点
         self.show_points_checkbox = QCheckBox()
-        self.show_points_checkbox.setChecked(self.settings.get('show_points', False))  # 默认关闭
+        self.show_points_checkbox.setChecked(self.settings.get('show_points', True))  # 默认开启，显示完整信息
         show_points_layout = self._create_setting_with_info(
             QLabel("显示原始数据点:"), self.show_points_checkbox,
             "是否在热力图上显示原始数据点。禁用此选项可以显著提高渲染性能，特别是对于大数据集。"
@@ -354,7 +351,7 @@ class PerformanceSettingsDialog(QDialog):
         # 方格网格线宽度
         self.grid_width_slider = QSlider(Qt.Horizontal)
         self.grid_width_slider.setRange(1, 5)
-        self.grid_width_slider.setValue(self.settings.get('grid_width', 1))
+        self.grid_width_slider.setValue(self.settings.get('grid_width', 5))  # 默认最大值，最清晰的网格线
         self.grid_width_label = QLabel(f"网格线宽度: {self.grid_width_slider.value()}")
         self.grid_width_slider.valueChanged.connect(
             lambda value: self.grid_width_label.setText(f"网格线宽度: {value}"))

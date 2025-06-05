@@ -32,6 +32,9 @@ class HeatmapModel(BaseModel):
         self.fig_2d = None  # 当前选中的2D图形
         self.plotly_fig: Optional[go.Figure] = None  # Plotly图形，添加类型提示
         
+        # 初始化X轴翻转状态
+        self._x_axis_flipped = False  # 默认不翻转X轴
+        
         # 初始化配置参数
         self._config['performance_settings'] = DefaultSettings.get_performance_settings()
         self._config['colorbar_settings'] = DefaultSettings.get_colorbar_settings()
@@ -384,6 +387,11 @@ class HeatmapModel(BaseModel):
         # 设置坐标轴（确保中文正常显示）
         ax.set_xlim(x_center - radius * 1.1, x_center + radius * 1.1)
         ax.set_ylim(y_center - radius * 1.1, y_center + radius * 1.1)
+        
+        # 检查是否需要翻转X轴显示
+        if hasattr(self, '_x_axis_flipped') and self._x_axis_flipped:
+            # X轴需要翻转显示
+            ax.invert_xaxis()
         ax.set_xlabel('X坐标 (μm)', fontsize=12, fontfamily='sans-serif')
         ax.set_ylabel('Y坐标 (μm)', fontsize=12, fontfamily='sans-serif')
         ax.set_title(f'SiC应力分布2D热力图 (Z={z_depth}μm)\n{file_name}', 
@@ -449,6 +457,7 @@ class HeatmapModel(BaseModel):
                     y = data['Y'].values
                     values = data['Value'].values
                     
+                    # 计算数据的中心点和半径
                     x_center = (x.max() + x.min()) / 2
                     y_center = (y.max() + y.min()) / 2
                     radius = max(x.max() - x.min(), y.max() - y.min()) / 2
@@ -458,6 +467,8 @@ class HeatmapModel(BaseModel):
                     xi = np.linspace(x_center - radius, x_center + radius, resolution)
                     yi = np.linspace(y_center - radius, y_center + radius, resolution)
                     xi_grid, yi_grid = np.meshgrid(xi, yi)
+                    
+                    # 网格数据保持原始方向，翻转效果通过坐标轴配置实现
                     
                     # 数据插值到网格
                     if len(x) < 4:
@@ -531,11 +542,13 @@ class HeatmapModel(BaseModel):
                                          "Y: %{y:.1f}μm<br>" +
                                          "Z: %{z:.1f}μm<br>" +
                                          "应力: %{surfacecolor:.2f} MPa<extra></extra>",
-                             # 添加光照效果使方格更明显
+                             # 调整光照效果减少高亮反射和泛白
                              lighting=dict(
-                                 ambient=0.8,
-                                 diffuse=0.8,
-                                 specular=0.1
+                                 ambient=0.4,  # 降低环境光，减少整体亮度
+                                 diffuse=0.6,  # 适度降低漫反射，保持细节可见
+                                 specular=0.05,  # 进一步降低镜面反射，减少高光
+                                 roughness=0.8,  # 增加表面粗糙度，减少反射
+                                 fresnel=0.1   # 降低菲涅尔反射强度
                              ),
                              lightposition=dict(
                                  x=100,
@@ -586,17 +599,36 @@ class HeatmapModel(BaseModel):
                     continue
             
             print("DEBUG: 配置3D场景布局...")
-            self.plotly_fig.update_layout(
-                scene=dict(
-                    xaxis_title='X坐标 (μm)',
-                    yaxis_title='Y坐标 (μm)',
-                    zaxis_title='Z深度 (μm)',
-                    aspectmode='manual',  # 改为手动模式以自定义比例
-                    aspectratio=dict(x=1, y=1, z=1.5 * self.performance_settings.get('z_scale', 1.0)),
-                    camera=dict(
-                        eye=dict(x=1.5, y=1.5, z=1)
-                    )
+            
+            # 配置3D场景的坐标轴
+            scene_config = dict(
+                xaxis_title='X坐标 (μm)',
+                yaxis_title='Y坐标 (μm)',
+                zaxis_title='Z深度 (μm)',
+                aspectmode='manual',  # 改为手动模式以自定义比例
+                aspectratio=dict(x=1, y=1, z=1.5 * self.performance_settings.get('z_scale', 1.0)),
+                camera=dict(
+                    eye=dict(x=1.8, y=1.8, z=1.2)  # 调整相机角度，减少直视反射
                 ),
+                bgcolor='rgba(240,240,240,1)',  # 设置较暗的背景色，减少对比度
+                # 确保Y轴与2D热力图保持一致的方向
+                yaxis=dict(
+                    title='Y坐标 (μm)',
+                    autorange='reversed'  # 反转Y轴以与2D热力图保持一致
+                ),
+                # X轴默认正常显示（从左到右递增）
+                xaxis=dict(
+                    title='X坐标 (μm)'
+                    # 不设置autorange，保持默认的正常显示
+                )
+            )
+            
+            # 如果X轴未翻转，才反转X轴显示（修正逻辑）
+            if not (hasattr(self, '_x_axis_flipped') and self._x_axis_flipped):
+                scene_config['xaxis']['autorange'] = 'reversed'  # 反转X轴范围
+            
+            self.plotly_fig.update_layout(
+                scene=scene_config,
                 title_text="SiC应力3D切片",
                 margin=dict(l=0, r=0, t=50, b=0),
                 legend=dict(
@@ -606,7 +638,7 @@ class HeatmapModel(BaseModel):
                     x=0.01,
                     bgcolor="rgba(255,255,255,0.5)"
                 ),
-                template="plotly_white"
+                template="plotly_white",
             )
             
             # 简化配置以减少内存占用
@@ -662,3 +694,28 @@ class HeatmapModel(BaseModel):
             print(f"Plotly热力图已保存到: {output_path}")
         else:
             raise ValueError(f"不支持的图形类型: {figure_type}")
+            
+    def flip_x_axis(self):
+        """翻转X轴显示方向，不修改原始数据
+        
+        只切换X轴显示方向标记，在生成热力图时应用翻转效果
+        """
+        if len(self.data_sets) == 0:
+            raise ValueError("没有数据集可以翻转")
+        
+        try:
+            # 切换翻转状态标记
+            self._x_axis_flipped = not getattr(self, '_x_axis_flipped', False)
+            
+            flip_status = "已翻转" if self._x_axis_flipped else "已恢复"
+            print(f"X轴显示方向{flip_status}，共影响 {len(self.data_sets)} 个数据集")
+            
+            # 通知观察者X轴翻转状态已更新
+            self.notify_observers('x_axis_flipped', {
+                'count': len(self.data_sets),
+                'flipped': self._x_axis_flipped
+            })
+            
+        except Exception as e:
+            print(f"翻转X轴时发生错误: {e}")
+            raise
