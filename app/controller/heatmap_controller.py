@@ -44,6 +44,10 @@ class HeatmapController(BaseController):
             # 更新数据范围显示
             self.update_data_range_display()
             
+            # 如果当前在3D视图模式，自动重新生成3D热力图
+            if self.view.current_view_type == 'plotly':
+                self.on_generate_3d()
+            
         elif event_type == 'dataset_removed':
             # 更新数据集列表显示
             self.view.update_dataset_list(self.model.data_sets)
@@ -114,14 +118,19 @@ class HeatmapController(BaseController):
                     else:
                         self.view.show_error('错误', f'加载失败: {file_path}')
             
-            # 自动选择最后一个数据集并生成2D热力图
+            # 自动选择最后一个数据集并根据当前视图类型生成相应热力图
             if first_file_loaded:
                 last_index = len(self.model.data_sets) - 1
                 if last_index >= 0:
                     self.view.csv_list_widget.setCurrentRow(last_index)
                     
-                    # 自动生成2D热力图
-                    self.on_generate_2d(last_index)
+                    # 根据当前视图类型自动生成热力图
+                    if self.view.current_view_type == 'plotly':
+                        # 如果当前在3D视图，生成3D热力图
+                        self.on_generate_3d()
+                    else:
+                        # 否则生成2D热力图
+                        self.on_generate_2d(last_index)
         except Exception as e:
             self.handle_exception(e, "加载CSV文件")
     

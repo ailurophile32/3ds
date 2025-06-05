@@ -326,7 +326,7 @@ class HeatmapView(BaseView):
         self.remove_button.setEnabled(has_selection)
         self.z_input_button.setEnabled(has_selection)
         self.generate_2d_button.setEnabled(has_selection)
-        self.flip_x_button.setEnabled(has_selection)
+        self.flip_x_checkbox.setEnabled(has_selection)
         
         if has_selection:
             self.trigger_callback('on_csv_selection_changed', row)
