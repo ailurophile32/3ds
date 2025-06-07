@@ -16,7 +16,7 @@ import plotly.io as pio
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
 from plotly.subplots import make_subplots
-from scipy.interpolate import griddata
+from scipy.interpolate import griddata, Rbf
 
 from app.model.base_model import BaseModel
 from app.utils.config import DefaultSettings
@@ -39,6 +39,7 @@ class HeatmapModel(BaseModel):
         self._config['performance_settings'] = DefaultSettings.get_performance_settings()
         self._config['colorbar_settings'] = DefaultSettings.get_colorbar_settings()
         self._config['current_colormap'] = 'coolwarm'  # 默认色标
+        self._config['current_interpolation'] = 'rbf'  # 默认插值方法
         
         # 设置Plotly的默认模板
         pio.templates.default = "plotly_white"
@@ -63,6 +64,17 @@ class HeatmapModel(BaseModel):
         """设置当前色标"""
         self._config['current_colormap'] = value
         self.notify_observers('colormap_changed', value)
+    
+    @property
+    def current_interpolation(self) -> str:
+        """获取当前插值方法"""
+        return self._config['current_interpolation']
+    
+    @current_interpolation.setter
+    def current_interpolation(self, value: str):
+        """设置当前插值方法"""
+        self._config['current_interpolation'] = value
+        self.notify_observers('interpolation_changed', value)
         
     def get_plotly_colorscale(self, matplotlib_cmap: str) -> str:
         """将matplotlib色标名称转换为Plotly色标名称
@@ -75,6 +87,46 @@ class HeatmapModel(BaseModel):
         """
         colormap_mapping = DefaultSettings.get_plotly_colorscale_mapping()
         return colormap_mapping.get(matplotlib_cmap, 'RdBu_r')
+    
+    def _interpolate_data(self, x: np.ndarray, y: np.ndarray, values: np.ndarray, 
+                         xi_grid: np.ndarray, yi_grid: np.ndarray, method: str = None) -> np.ndarray:
+        """通用插值方法
+        
+        Args:
+            x: X坐标数组
+            y: Y坐标数组
+            values: 数值数组
+            xi_grid: 插值目标X网格
+            yi_grid: 插值目标Y网格
+            method: 插值方法，如果为None则使用当前设置的方法
+            
+        Returns:
+            np.ndarray: 插值后的数据网格
+        """
+        if method is None:
+            method = self.current_interpolation
+        
+        try:
+            if method == 'rbf':
+                # RBF插值 - 最佳质量
+                rbf_func = Rbf(x, y, values, function='multiquadric', smooth=0.1)
+                zi = rbf_func(xi_grid, yi_grid)
+            elif method == 'cubic':
+                # 三次插值 - 平滑
+                zi = griddata((x, y), values, (xi_grid, yi_grid), method='cubic', fill_value=np.nan)
+            elif method == 'nearest':
+                # 最近邻插值 - 保真
+                zi = griddata((x, y), values, (xi_grid, yi_grid), method='nearest', fill_value=np.nan)
+            else:
+                # 线性插值 - 默认和快速
+                zi = griddata((x, y), values, (xi_grid, yi_grid), method='linear', fill_value=np.nan)
+            
+            return zi
+            
+        except Exception as e:
+            print(f"警告: {method}插值失败，回退到线性插值: {str(e)}")
+            # 如果指定方法失败，回退到线性插值
+            return griddata((x, y), values, (xi_grid, yi_grid), method='linear', fill_value=np.nan)
         
     def load_csv(self, file_path: str, z_depth: float = 0.0) -> bool:
         """加载CSV文件
@@ -349,7 +401,7 @@ class HeatmapModel(BaseModel):
         xi_grid, yi_grid = np.meshgrid(xi, yi)
         
         # 插值生成热力图数据
-        zi = griddata((x, y), values, (xi_grid, yi_grid), method='cubic', fill_value=np.nan)
+        zi = self._interpolate_data(x, y, values, xi_grid, yi_grid)
         
         # 创建圆形遮罩
         distances = np.sqrt((xi_grid - x_center)**2 + (yi_grid - y_center)**2)
@@ -476,7 +528,7 @@ class HeatmapModel(BaseModel):
                         continue
                     
                     try:
-                        zi_grid = griddata((x, y), values, (xi_grid, yi_grid), method='linear', fill_value=np.nan)
+                        zi_grid = self._interpolate_data(x, y, values, xi_grid, yi_grid)
                     except Exception as interp_error:
                         print(f"警告: 数据集 {file_name} 插值失败: {str(interp_error)}，跳过。")
                         continue

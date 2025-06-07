@@ -56,6 +56,20 @@ class DefaultSettings:
         }
     
     @staticmethod
+    def get_interpolation_options() -> Dict[str, str]:
+        """获取插值方法选项
+        
+        Returns:
+            Dict[str, str]: 插值方法名称到显示名称的映射
+        """
+        return {
+            'linear': '线性插值 - 快速',
+            'cubic': '三次插值 - 平滑',
+            'nearest': '最近邻插值 - 保真',
+            'rbf': 'RBF插值 - 最佳（推荐）'
+        }
+    
+    @staticmethod
     def get_plotly_colorscale_mapping() -> Dict[str, str]:
         """获取matplotlib到Plotly的色标映射
         

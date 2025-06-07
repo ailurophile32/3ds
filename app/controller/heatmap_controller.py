@@ -86,6 +86,7 @@ class HeatmapController(BaseController):
         self.view.register_callback('on_save_heatmap', self.on_save_heatmap)
         self.view.register_callback('on_z_scale_changed', self.on_z_scale_changed)
         self.view.register_callback('on_colormap_changed', self.on_colormap_changed)
+        self.view.register_callback('on_interpolation_changed', self.on_interpolation_changed)
         self.view.register_callback('on_auto_range_changed', self.on_auto_range_changed)
         self.view.register_callback('on_smart_range_changed', self.on_smart_range_changed)
         self.view.register_callback('on_reset_range', self.on_reset_range)
@@ -395,6 +396,22 @@ class HeatmapController(BaseController):
                     })
         else:
             self.view.update_data_range_display(0, 0)
+    
+    def on_interpolation_changed(self, interpolation_method: str):
+        """处理插值方法变更事件
+        
+        Args:
+            interpolation_method: 插值方法名称
+        """
+        self.model.current_interpolation = interpolation_method
+        self.view.update_status(f'插值方法已切换为: {interpolation_method}')
+        
+        # 根据当前视图类型重新生成图形
+        if self.model.get_dataset_count() > 0:
+            if self.view.current_view_type == '2d':
+                self.on_generate_2d(self.view.current_dataset_index)
+            elif self.view.current_view_type == 'plotly':
+                self.on_generate_3d()
     
     def on_flip_x_axis(self):
         """处理翻转X轴事件"""
