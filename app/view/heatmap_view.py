@@ -46,6 +46,7 @@ class HeatmapView(BaseView):
             'on_save_heatmap': None,
             'on_z_scale_changed': None,
             'on_colormap_changed': None,
+            'on_interpolation_changed': None,
             'on_auto_range_changed': None,
             'on_smart_range_changed': None,
             'on_reset_range': None,
@@ -159,6 +160,21 @@ class HeatmapView(BaseView):
         self.colormap_combo.setCurrentIndex(0)  # 默认选择第一个
         self.colormap_combo.currentTextChanged.connect(self._on_colormap_changed)
         colormap_layout.addRow('色标样式:', self.colormap_combo)
+        
+        # 插值方法选择
+        self.interpolation_combo = QComboBox()
+        
+        # 添加插值方法选项
+        interpolation_options = DefaultSettings.get_interpolation_options()
+        for value, display_name in interpolation_options.items():
+            self.interpolation_combo.addItem(display_name, value)
+        
+        # 默认选择RBF插值（最佳方法）
+        rbf_index = list(interpolation_options.keys()).index('rbf')
+        self.interpolation_combo.setCurrentIndex(rbf_index)
+        self.interpolation_combo.currentTextChanged.connect(self._on_interpolation_changed)
+        colormap_layout.addRow('插值方法:', self.interpolation_combo)
+        
         colorbar_layout.addLayout(colormap_layout)
         
         # 手动范围设置
@@ -394,6 +410,11 @@ class HeatmapView(BaseView):
         """处理色标变更事件"""
         colormap_name = self.colormap_combo.currentData()
         self.trigger_callback('on_colormap_changed', colormap_name)
+    
+    def _on_interpolation_changed(self):
+        """处理插值方法变更事件"""
+        interpolation_method = self.interpolation_combo.currentData()
+        self.trigger_callback('on_interpolation_changed', interpolation_method)
     
     def _on_auto_range_changed(self, state):
         """处理自动范围设置变更事件"""
