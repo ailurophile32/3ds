@@ -21,13 +21,19 @@ def setup_encoding():
     # 强制设置stdout和stderr编码为UTF-8 (Python 3.7+)
     if hasattr(sys.stdout, 'reconfigure') and sys.stdout.encoding != 'utf-8':
         try:
-            sys.stdout.reconfigure(encoding='utf-8')
+            # 使用 getattr 和 type: ignore 来避免类型检查器警告
+            reconfigure_method = getattr(sys.stdout, 'reconfigure', None)
+            if reconfigure_method:
+                reconfigure_method(encoding='utf-8')
         except Exception:
             pass
             
     if hasattr(sys.stderr, 'reconfigure') and sys.stderr.encoding != 'utf-8':
         try:
-            sys.stderr.reconfigure(encoding='utf-8')
+            # 使用 getattr 和 type: ignore 来避免类型检查器警告
+            reconfigure_method = getattr(sys.stderr, 'reconfigure', None)
+            if reconfigure_method:
+                reconfigure_method(encoding='utf-8')
         except Exception:
             pass
 
