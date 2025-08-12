@@ -226,9 +226,20 @@ class HeatmapModel(BaseModel):
         
         try:
             if method == 'rbf':
-                # RBF插值 - 最佳质量
-                rbf_func = Rbf(x, y, values, function='multiquadric', smooth=0.1)
-                zi = rbf_func(xi_grid, yi_grid)
+                # RBF插值 - 最佳质量，优化参数提升性能和质量
+                # 尝试使用thin_plate函数，smooth参数从0.1优化到0.01以提高精度
+                try:
+                    rbf_func = Rbf(x, y, values, function='thin_plate', smooth=0.01)
+                    zi = rbf_func(xi_grid, yi_grid)
+                except Exception:
+                    # 如果thin_plate失败，尝试gaussian函数
+                    try:
+                        rbf_func = Rbf(x, y, values, function='gaussian', smooth=0.05)
+                        zi = rbf_func(xi_grid, yi_grid)
+                    except Exception:
+                        # 最后回退到原始multiquadric函数，但使用优化的smooth参数
+                        rbf_func = Rbf(x, y, values, function='multiquadric', smooth=0.05)
+                        zi = rbf_func(xi_grid, yi_grid)
             elif method == 'cubic':
                 # 三次插值 - 平滑
                 zi = griddata((x, y), values, (xi_grid, yi_grid), method='cubic', fill_value=np.nan)
