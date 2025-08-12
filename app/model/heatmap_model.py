@@ -15,6 +15,7 @@ import plotly.graph_objects as go
 import plotly.io as pio
 from matplotlib.figure import Figure
 from matplotlib.patches import Circle
+from matplotlib.colors import LinearSegmentedColormap
 from plotly.subplots import make_subplots
 from scipy.interpolate import griddata, Rbf
 
@@ -43,6 +44,9 @@ class HeatmapModel(BaseModel):
         
         # 设置Plotly的默认模板
         pio.templates.default = "plotly_white"
+        
+        # 创建自定义蓝白红色标，确保0值为白色
+        self._custom_colormap = self._create_custom_blue_white_red_colormap()
     
     @property
     def performance_settings(self) -> Dict[str, Any]:
@@ -87,6 +91,120 @@ class HeatmapModel(BaseModel):
         """
         colormap_mapping = DefaultSettings.get_plotly_colorscale_mapping()
         return colormap_mapping.get(matplotlib_cmap, 'RdBu_r')
+    
+    def _create_custom_blue_white_red_colormap(self):
+        """创建自定义的蓝白红色标，确保0值始终为白色
+        
+        Returns:
+            LinearSegmentedColormap: 自定义色标对象
+        """
+        # 定义颜色节点：蓝色 -> 白色 -> 红色
+        colors = ['#0066CC', '#FFFFFF', '#CC0000']  # 深蓝 -> 纯白 -> 深红
+        n_bins = 256  # 色标分辨率
+        
+        # 创建线性分段色标
+        custom_cmap = LinearSegmentedColormap.from_list(
+            'custom_blue_white_red', colors, N=n_bins
+        )
+        
+        return custom_cmap
+    
+    def _get_normalized_colormap(self, vmin: float, vmax: float):
+        """获取标准化的色标，确保0值对应白色
+        
+        Args:
+            vmin: 数据最小值
+            vmax: 数据最大值
+            
+        Returns:
+            tuple: (色标对象, 标准化的vmin, 标准化的vmax)
+        """
+        if self.current_colormap == 'coolwarm':
+            # 对于蓝白红配色，确保0值对应白色
+            if vmin < 0 and vmax > 0:
+                # 数据跨越0值，创建动态色标确保0值为白色
+                # 计算0值在数据范围中的相对位置
+                zero_position = -vmin / (vmax - vmin)
+                
+                # 创建动态色标，0值位置对应白色
+                colors = ['#0066CC', '#FFFFFF', '#CC0000']  # 蓝-白-红
+                positions = [0.0, zero_position, 1.0]
+                
+                # 确保位置在有效范围内
+                zero_position = max(0.01, min(0.99, zero_position))
+                positions = [0.0, zero_position, 1.0]
+                
+                # 创建分段色标
+                cmap_data = list(zip(positions, colors))
+                dynamic_cmap = LinearSegmentedColormap.from_list(
+                    'dynamic_blue_white_red', cmap_data, N=256
+                )
+                return dynamic_cmap, vmin, vmax
+            elif vmin >= 0:
+                # 全为正值，使用白色到红色的部分
+                colors = ['#FFFFFF', '#CC0000']
+                partial_cmap = LinearSegmentedColormap.from_list(
+                    'white_red', colors, N=256
+                )
+                return partial_cmap, vmin, vmax
+            else:
+                # 全为负值，使用蓝色到白色的部分
+                colors = ['#0066CC', '#FFFFFF']
+                partial_cmap = LinearSegmentedColormap.from_list(
+                    'blue_white', colors, N=256
+                )
+                return partial_cmap, vmin, vmax
+        else:
+            # 其他色标保持原样
+            return self.current_colormap, vmin, vmax
+    
+    def _get_custom_plotly_colorscale(self, vmin: float, vmax: float):
+        """获取自定义的Plotly色标，确保0值对应白色
+        
+        Args:
+            vmin: 数据最小值
+            vmax: 数据最大值
+            
+        Returns:
+            tuple: (Plotly色标列表, 标准化的vmin, 标准化的vmax)
+        """
+        if self.current_colormap == 'coolwarm':
+            if vmin < 0 and vmax > 0:
+                # 数据跨越0值，创建动态蓝白红色标
+                # 计算0值在数据范围中的相对位置
+                zero_position = -vmin / (vmax - vmin)
+                
+                # 确保位置在有效范围内
+                zero_position = max(0.01, min(0.99, zero_position))
+                
+                # 创建动态色标，0值位置对应白色
+                colorscale = [
+                    [0.0, '#0066CC'],           # 深蓝
+                    [zero_position * 0.5, '#4D9FDB'],  # 浅蓝（0值位置的一半）
+                    [zero_position, '#FFFFFF'],  # 纯白（0值）
+                    [zero_position + (1 - zero_position) * 0.5, '#DB4D4D'],  # 浅红
+                    [1.0, '#CC0000']            # 深红
+                ]
+                return colorscale, vmin, vmax
+            elif vmin >= 0:
+                # 全为正值，白色到红色
+                colorscale = [
+                    [0.0, '#FFFFFF'],  # 纯白
+                    [0.5, '#FF6666'],  # 浅红
+                    [1.0, '#CC0000']   # 深红
+                ]
+                return colorscale, vmin, vmax
+            else:
+                # 全为负值，蓝色到白色
+                colorscale = [
+                    [0.0, '#0066CC'],  # 深蓝
+                    [0.5, '#6699FF'],  # 浅蓝
+                    [1.0, '#FFFFFF']   # 纯白
+                ]
+                return colorscale, vmin, vmax
+        else:
+            # 其他色标使用默认映射
+            return self.get_plotly_colorscale(self.current_colormap), vmin, vmax
     
     def _interpolate_data(self, x: np.ndarray, y: np.ndarray, values: np.ndarray, 
                          xi_grid: np.ndarray, yi_grid: np.ndarray, method: str = None) -> np.ndarray:
@@ -425,11 +543,14 @@ class HeatmapModel(BaseModel):
             vmin = self.colorbar_settings['vmin']
             vmax = self.colorbar_settings['vmax']
         
+        # 获取优化的色标和范围
+        colormap, norm_vmin, norm_vmax = self._get_normalized_colormap(vmin, vmax)
+        
         # 绘制热力图
         im = ax.imshow(zi, extent=[x_center-radius, x_center+radius, 
                                   y_center-radius, y_center+radius],
-                      origin='lower', cmap=self.current_colormap, aspect='equal',
-                      vmin=vmin, vmax=vmax)
+                      origin='lower', cmap=colormap, aspect='equal',
+                      vmin=norm_vmin, vmax=norm_vmax)
         
         # 添加圆形边界
         circle = Circle((x_center, y_center), radius, fill=False, 
@@ -559,15 +680,20 @@ class HeatmapModel(BaseModel):
                     z_masked = np.full_like(zi_grid, z_depth)
                     z_masked[np.isnan(zi_grid)] = np.nan
                     
+                    # 获取优化的Plotly色标和范围
+                    plotly_colorscale, norm_vmin, norm_vmax = self._get_custom_plotly_colorscale(
+                        self._global_vmin, self._global_vmax
+                    )
+                    
                     self.plotly_fig.add_trace(
                          go.Surface(
                              x=xi_grid,
                              y=yi_grid,
                              z=z_masked,  # 使用遮罩后的Z值
                              surfacecolor=zi_grid,
-                             colorscale=self.get_plotly_colorscale(self.current_colormap),
-                             cmin=self._global_vmin,  # 设置颜色范围最小值
-                             cmax=self._global_vmax,  # 设置颜色范围最大值
+                             colorscale=plotly_colorscale,
+                             cmin=norm_vmin,  # 设置颜色范围最小值
+                             cmax=norm_vmax,  # 设置颜色范围最大值
                              cauto=False,  # 禁用自动颜色范围
                              opacity=alpha_value,
                              showscale=(dataset_index == 0),  # 仅为第一个轨迹显示色条
