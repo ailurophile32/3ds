@@ -584,8 +584,8 @@ class HeatmapModel(BaseModel):
                              name=f"{file_name} (Z={z_depth}μm)",
                              # 设置表面样式为方格效果
                              contours=dict(
-                                 x=dict(show=True, color="white", width=grid_width),
-                                 y=dict(show=True, color="white", width=grid_width),
+                                 x=dict(show=False, color="white", width=grid_width),
+                                 y=dict(show=False, color="white", width=grid_width),
                                  z=dict(show=False)
                              ),
                              # 添加悬停信息
