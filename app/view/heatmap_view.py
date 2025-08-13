@@ -487,16 +487,10 @@ class HeatmapView(BaseView):
         self.trigger_callback("on_smart_range_changed", is_smart)
 
     def _reset_spinbox_style(self):
-        """重置输入框样式为默认状态"""
-        default_style = """
-            QDoubleSpinBox {
-                border: 1px solid #bdc3c7;
-                border-radius: 4px;
-                padding: 2px;
-            }
-        """
-        self.vmin_spinbox.setStyleSheet(default_style)
-        self.vmax_spinbox.setStyleSheet(default_style)
+        """重置输入框样式为PySide官方默认状态"""
+        # 清除自定义样式，使用PySide官方默认样式
+        self.vmin_spinbox.setStyleSheet("")
+        self.vmax_spinbox.setStyleSheet("")
 
     def _create_focus_handler(self, original_handler, spinbox_type):
         """创建焦点事件处理器
@@ -689,29 +683,10 @@ class HeatmapView(BaseView):
         Args:
             is_valid: 输入是否有效
         """
-        if is_valid:
-            # 有效输入 - 绿色边框
-            style = """
-                QDoubleSpinBox {
-                    border: 2px solid #27ae60;
-                    border-radius: 4px;
-                    padding: 2px;
-                    background-color: #f8fff8;
-                }
-            """
-        else:
-            # 无效输入 - 红色边框
-            style = """
-                QDoubleSpinBox {
-                    border: 2px solid #e74c3c;
-                    border-radius: 4px;
-                    padding: 2px;
-                    background-color: #fff8f8;
-                }
-            """
-
-        self.vmin_spinbox.setStyleSheet(style)
-        self.vmax_spinbox.setStyleSheet(style)
+        # 使用PySide官方默认样式，不设置自定义样式
+        # 验证状态通过其他方式反馈（如状态栏消息）
+        self.vmin_spinbox.setStyleSheet("")
+        self.vmax_spinbox.setStyleSheet("")
     
     def _update_apply_button_state(self, is_valid_range: bool, vmin: float, vmax: float):
         """优化应用按钮的启用/禁用状态管理

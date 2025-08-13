@@ -397,10 +397,10 @@ class HeatmapController(BaseController):
     def on_reset_range(self, dataset_index: int):
         """处理重置范围事件 - 优化版本
         
-        更新重置按钮功能，恢复到原始数据范围并启用智能计算：
+        重置按钮功能，恢复到原始数据范围：
         1. 恢复到原始数据范围
-        2. 启用智能范围计算
-        3. 清除手动设置的范围值
+        2. 清除手动设置的范围值
+        3. 将智能范围计算设为未勾选状态
         4. 提供清晰的视觉状态指示
         5. 自动刷新热力图显示
         
@@ -409,25 +409,25 @@ class HeatmapController(BaseController):
         """
         if 0 <= dataset_index < self.model.get_dataset_count():
             try:
-                # 1. 启用智能范围计算并清除手动设置
-                self.view.smart_range_checkbox.setChecked(True)
+                # 1. 清除手动设置的范围值，并将智能范围设为未勾选
+                self.view.smart_range_checkbox.setChecked(False)
                 self.model.update_colorbar_settings({
-                    'smart_range': True,
+                    'smart_range': False,  # 设为未勾选状态
                     'vmin': None,  # 清除手动设置的最小值
                     'vmax': None   # 清除手动设置的最大值
                 })
                 
-                # 2. 获取智能范围（基于原始数据）
-                vmin, vmax = self.model.get_data_range(dataset_index, smart_range=True)
+                # 2. 获取原始数据范围
+                vmin, vmax = self.model.get_data_range(dataset_index, smart_range=False)
                 
                 # 3. 更新视图显示
                 self.view.set_range_values(vmin, vmax)
                 self.update_data_range_display()
                 
-                # 4. 更新控件状态 - 提供清晰的视觉状态指示
-                self.view.vmin_spinbox.setEnabled(False)
-                self.view.vmax_spinbox.setEnabled(False)
-                self.view.apply_range_button.setEnabled(False)
+                # 4. 更新控件状态 - 智能范围未勾选，启用手动输入
+                self.view.vmin_spinbox.setEnabled(True)
+                self.view.vmax_spinbox.setEnabled(True)
+                self.view.apply_range_button.setEnabled(False)  # 重置后不需要应用
                 
                 # 5. 重置输入框样式，提供清晰的视觉反馈
                 self.view._reset_spinbox_style()
@@ -436,10 +436,10 @@ class HeatmapController(BaseController):
                 self._auto_refresh_heatmap_after_reset()
                 
                 # 7. 添加操作反馈，提供清晰的视觉状态指示
-                self.view.update_status(f'✓ 已重置为智能范围计算: {vmin:.2f} - {vmax:.2f} MPa')
+                self.view.update_status(f'✓ 已重置为原始数据范围: {vmin:.2f} - {vmax:.2f} MPa')
                 
                 # 8. 可选：显示成功提示（短暂显示）
-                self._show_operation_feedback("重置成功", "已恢复到智能范围计算模式", "success")
+                self._show_operation_feedback("重置成功", "已恢复到原始数据范围", "success")
                 
             except Exception as e:
                 # 错误处理和用户反馈
