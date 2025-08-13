@@ -828,6 +828,24 @@ class HeatmapModel(BaseModel):
         # 智能范围计算
         return self.safe_smart_range_calculation(values)
     
+    def _add_colorbar_annotations(self, cbar, vmin: float, vmax: float):
+        """为matplotlib色标条添加max/min标注
+        
+        Args:
+            cbar: matplotlib colorbar对象
+            vmin: 最小值
+            vmax: 最大值
+        """
+        cbar_ax = cbar.ax
+        
+        # 在色标条顶部添加最大值标注
+        cbar_ax.text(1.15, 1.02, f'max: {vmax:.0f}', transform=cbar_ax.transAxes, 
+                    fontsize=10, ha='left', va='bottom', fontfamily='sans-serif')
+        
+        # 在色标条底部添加最小值标注
+        cbar_ax.text(1.15, -0.02, f'min: {vmin:.0f}', transform=cbar_ax.transAxes,
+                    fontsize=10, ha='left', va='top', fontfamily='sans-serif')
+    
     def get_effective_range(self, dataset_index: int = None) -> Tuple[float, float]:
         """获取有效的色标范围
         
@@ -1187,6 +1205,10 @@ class HeatmapModel(BaseModel):
         # 添加颜色条
         cbar = self.fig_2d.colorbar(im, ax=ax, shrink=0.8)
         cbar.set_label('应力 (MPa)', fontsize=12, fontfamily='sans-serif')
+        
+        # 添加max/min标注
+        self._add_colorbar_annotations(cbar, norm_vmin, norm_vmax)
+        
         # 设置色标卡的层级较低，确保鼠标悬停标签显示在上方
         cbar.ax.set_zorder(1)
         
@@ -1230,8 +1252,16 @@ class HeatmapModel(BaseModel):
                 subplot_titles=[" "]
             )
             
-            # 使用统一的色标卡范围计算逻辑
-            self._global_vmin, self._global_vmax = self.get_effective_range()
+            # 使用原始数据范围计算逻辑，不使用get_effective_range（与重置范围逻辑一致）
+            # 确保colorbar_settings中的vmin/vmax已被清除或正确设置
+            self._global_vmin, self._global_vmax = self.get_data_range(None, smart_range=False)
+            print(f"DEBUG: 3D热力图使用原始数据范围: vmin={self._global_vmin:.2f}, vmax={self._global_vmax:.2f}")
+            
+            # 预先计算统一的色标设置，确保所有Surface使用相同范围
+            plotly_colorscale, norm_vmin, norm_vmax = self._get_custom_plotly_colorscale(
+                self._global_vmin, self._global_vmax
+            )
+            print(f"DEBUG: 统一色标范围: norm_vmin={norm_vmin:.2f}, norm_vmax={norm_vmax:.2f}")
             
             # 为每个数据集创建方格地毯图层
             for dataset_index, (data, z_depth, file_name) in enumerate(self.data_sets):
@@ -1291,10 +1321,8 @@ class HeatmapModel(BaseModel):
                     z_masked = np.full_like(zi_grid, z_depth)
                     z_masked[np.isnan(zi_grid)] = np.nan
                     
-                    # 获取优化的Plotly色标和范围
-                    plotly_colorscale, norm_vmin, norm_vmax = self._get_custom_plotly_colorscale(
-                        self._global_vmin, self._global_vmax
-                    )
+                    # 使用预先计算的统一色标设置
+                    print(f"DEBUG: Surface {dataset_index} 使用统一色标范围: norm_vmin={norm_vmin:.2f}, norm_vmax={norm_vmax:.2f}")
                     
                     self.plotly_fig.add_trace(
                          go.Surface(
@@ -1316,7 +1344,12 @@ class HeatmapModel(BaseModel):
                                  thickness=20,
                                  x=1.02,
                                  title_font=dict(size=12),
-                                 tickfont=dict(size=10)
+                                 tickfont=dict(size=10),
+                                 # 明确设置colorbar的范围，确保与cmin/cmax一致
+                                 tickvals=None,  # 让Plotly自动生成刻度
+                                 ticktext=None,  # 让Plotly自动生成刻度标签
+                                 # 确保colorbar范围与Surface范围一致
+                                 dtick=None  # 自动计算刻度间隔
                              ) if dataset_index == 0 else None,
                              name=f"{file_name} (Z={z_depth}μm)",
                              # 设置表面样式为方格效果
@@ -1416,6 +1449,9 @@ class HeatmapModel(BaseModel):
             if not (hasattr(self, '_x_axis_flipped') and self._x_axis_flipped):
                 scene_config['xaxis']['autorange'] = 'reversed'  # 反转X轴范围
             
+            # 获取用于annotations的色标范围（与Surface使用相同的范围）
+            first_norm_vmin, first_norm_vmax = norm_vmin, norm_vmax
+            
             self.plotly_fig.update_layout(
                 scene=scene_config,
                 title_text="SiC应力3D切片",
@@ -1428,7 +1464,53 @@ class HeatmapModel(BaseModel):
                     bgcolor="rgba(255,255,255,0.5)"
                 ),
                 template="plotly_white",
+                # 添加max/min标注 - 使用与Surface相同的统一范围
+                annotations=[
+                    dict(
+                        x=1.01, y=0.98,
+                        xref='paper', yref='paper',
+                        text=f'max: {first_norm_vmax:.0f}',
+                        showarrow=False,
+                        font=dict(size=11, color='black'),
+                        xanchor='left',
+                        yanchor='top',
+                        bgcolor='rgba(255,255,255,0.8)',
+                        bordercolor='gray',
+                        borderwidth=1
+                    ),
+                    dict(
+                        x=1.01, y=0.05,
+                        xref='paper', yref='paper', 
+                        text=f'min: {first_norm_vmin:.0f}',
+                        showarrow=False,
+                        font=dict(size=11, color='black'),
+                        xanchor='left',
+                        yanchor='bottom',
+                        bgcolor='rgba(255,255,255,0.8)',
+                        bordercolor='gray',
+                        borderwidth=1
+                    )
+                ]
             )
+            
+            # 强制更新colorbar范围以确保显示正确的最大最小值
+            # 这是关键修复：确保colorbar范围与Surface的cmin/cmax完全一致
+            self.plotly_fig.update_coloraxes(
+                cmin=norm_vmin,
+                cmax=norm_vmax,
+                cauto=False
+            )
+            
+            # 另一种方法：直接更新所有traces的colorbar
+            for trace in self.plotly_fig.data:
+                if hasattr(trace, 'colorbar') and trace.colorbar is not None:
+                    trace.update(
+                        cmin=norm_vmin,
+                        cmax=norm_vmax,
+                        cauto=False
+                    )
+            
+            print(f"DEBUG: 已强制更新colorbar范围为: {norm_vmin:.2f} - {norm_vmax:.2f}")
             
             # 简化配置以减少内存占用
             self.plotly_fig.update_layout(

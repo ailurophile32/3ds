@@ -232,11 +232,17 @@ class HeatmapController(BaseController):
             progress_dialog.setLabelText("3D图形已创建，正在准备显示...")
             QApplication.processEvents()
             
-            # 显示3D图形
-            self.view.show_3d_figure(fig)
+            # 先清除任何现有的手动设置，确保使用原始数据范围（与重置范围逻辑一致）
+            self.model.update_colorbar_settings({
+                'smart_range': False,  # 禁用智能范围
+                'vmin': None,  # 清除手动设置的最小值
+                'vmax': None   # 清除手动设置的最大值
+            })
             
-            # 更新色标设置为3D模式的综合范围
+            # 获取原始数据范围（与重置范围完全相同的逻辑）
             vmin_raw, vmax_raw = self.model.get_data_range(None, smart_range=False)
+            
+            # 现在设置为手动范围（确保3D图形使用正确的范围）
             self.model.update_colorbar_settings({
                 'smart_range': False,  # 禁用智能范围
                 'vmin': vmin_raw,  # 设置为所有数据集的最小值
@@ -246,6 +252,9 @@ class HeatmapController(BaseController):
             # 更新视图显示
             self.view.smart_range_checkbox.setChecked(False)  # 取消智能范围勾选
             self.view.set_range_values(vmin_raw, vmax_raw)
+            
+            # 显示3D图形（确保色标范围已正确设置）
+            self.view.show_3d_figure(fig)
             
             # 更新数据范围显示为3D模式（显示所有数据集的综合范围）
             self.update_data_range_display()
