@@ -276,37 +276,30 @@ class HeatmapController(BaseController):
     
     def on_data_loaded(self):
         """数据加载后的新处理逻辑"""
-        # 自动根据智能范围计算设置色标范围
-        if self.model.colorbar_settings.get('smart_range', False):
-            # 获取当前数据集的智能范围
-            current_index = self.view.current_dataset_index
-            if current_index < self.model.get_dataset_count():
-                vmin, vmax = self.model.get_data_range(current_index, smart_range=True)
-            else:
-                # 使用最后一个数据集
-                last_index = self.model.get_dataset_count() - 1
-                if last_index >= 0:
-                    vmin, vmax = self.model.get_data_range(last_index, smart_range=True)
-                else:
-                    vmin, vmax = 0, 100  # 默认范围
+        # 首次启动时，默认使用数据的最大最小值范围来显示热力图
+        # 获取最后一个数据集（刚加载的数据集）
+        last_index = self.model.get_dataset_count() - 1
+        if last_index >= 0:
+            # 使用原始数据范围（最大最小值范围）
+            vmin, vmax = self.model.get_data_range(last_index, smart_range=False)
         else:
-            # 使用原始数据范围
-            current_index = self.view.current_dataset_index
-            if current_index < self.model.get_dataset_count():
-                vmin, vmax = self.model.get_data_range(current_index, smart_range=False)
-            else:
-                # 使用最后一个数据集
-                last_index = self.model.get_dataset_count() - 1
-                if last_index >= 0:
-                    vmin, vmax = self.model.get_data_range(last_index, smart_range=False)
-                else:
-                    vmin, vmax = 0, 100  # 默认范围
+            vmin, vmax = 0, 100  # 默认范围
         
-        # 更新显示但不启用手动输入框
+        # 更新色标设置为手动模式，使用数据的最大最小值范围
+        self.model.update_colorbar_settings({
+            'smart_range': False,  # 禁用智能范围
+            'vmin': vmin,  # 设置为数据最小值
+            'vmax': vmax   # 设置为数据最大值
+        })
+        
+        # 更新视图显示
+        self.view.smart_range_checkbox.setChecked(False)  # 取消智能范围勾选
         self.view.set_range_values(vmin, vmax)
         self.update_data_range_display()
         
-        # 确保按钮状态正确
+        # 设置控件状态
+        self.view.vmin_spinbox.setEnabled(True)  # 启用手动输入框
+        self.view.vmax_spinbox.setEnabled(True)
         self.view.reset_range_button.setEnabled(True)
         self.view.apply_range_button.setEnabled(False)  # 默认不启用，直到用户手动修改
 
