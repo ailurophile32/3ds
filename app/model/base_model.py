@@ -58,6 +58,9 @@ class BaseModel:
             if os.path.exists(config_path):
                 with open(config_path, 'r', encoding='utf-8') as f:
                     self._config = json.load(f)
+                
+                # 执行配置迁移
+                self._migrate_config()
                 return True
             return False
         except Exception as e:
@@ -105,4 +108,36 @@ class BaseModel:
         """
         self._config[key] = value
         # 配置变更时通知观察者
-        self.notify_observers('config_changed', {key: value}) 
+        self.notify_observers('config_changed', {key: value})
+    
+    def _migrate_config(self) -> None:
+        """迁移配置文件，处理版本兼容性问题
+        
+        处理从旧版本配置到新版本配置的迁移，确保向后兼容性
+        """
+        # 迁移色标卡设置：移除auto_range字段
+        if 'colorbar_settings' in self._config:
+            colorbar_settings = self._config['colorbar_settings']
+            
+            # 如果存在auto_range字段，进行迁移
+            if 'auto_range' in colorbar_settings:
+                auto_range = colorbar_settings.pop('auto_range')  # 移除auto_range字段
+                
+                # 迁移逻辑：
+                # 1. 如果auto_range为False，说明用户之前使用手动模式
+                #    此时应该禁用smart_range，保持手动设置的行为
+                # 2. 如果auto_range为True，保持smart_range的当前设置
+                if not auto_range:
+                    # 之前是手动模式，禁用智能范围计算
+                    colorbar_settings['smart_range'] = False
+                    print("配置迁移: 检测到手动色标范围模式，已禁用智能范围计算")
+                else:
+                    # 之前是自动模式，保持smart_range设置不变
+                    # 如果smart_range不存在，设置为默认值False
+                    if 'smart_range' not in colorbar_settings:
+                        colorbar_settings['smart_range'] = False
+                    print("配置迁移: 检测到自动色标范围模式，已保持智能范围计算设置")
+                
+                print(f"配置迁移完成: 已移除auto_range字段，当前smart_range={colorbar_settings.get('smart_range', False)}")
+        
+        # 可以在这里添加其他配置迁移逻辑

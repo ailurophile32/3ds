@@ -11,20 +11,39 @@ class DefaultSettings:
     
     @staticmethod
     def get_performance_settings() -> Dict[str, Any]:
-        """获取默认性能设置
+        """获取默认性能设置 - 优化版本
+        
+        针对大数据集和内存使用进行优化的性能设置
         
         Returns:
             Dict[str, Any]: 性能设置字典
         """
         return {
-            'resolution': 200,      # 最大分辨率，获得最精细的网格
-            'max_points': 50000,    # 增加最大点数限制
-            'point_size': 20,       # 最大点大小，更清晰可见
-            'alpha': 1.0,          # 适度透明，减少反射和泛白效果
-            'show_points': False,    # 显示原始数据点，获得完整信息
-            'decimation': 1,        # 不进行数据抽样，保持完整精度
-            'grid_width': 5,        # 最大网格线宽度，更清晰的网格
-            'z_scale': 0.5          # 增加Z轴缩放，更好的3D效果
+            'resolution': 200,      # 网格分辨率，平衡质量和性能
+            'max_points': 50000,    # 最大数据点数，超过时自动采样
+            'point_size': 20,       # 数据点显示大小
+            'alpha': 1.0,          # 透明度设置
+            'show_points': False,   # 是否显示原始数据点
+            'decimation': 1,        # 数据抽样率（1=不抽样）
+            'grid_width': 5,        # 网格线宽度
+            'z_scale': 0.5,         # Z轴缩放比例
+            
+            # 新增的性能优化选项
+            'enable_chunked_processing': True,    # 启用分块处理
+            'chunk_size': 500,                    # 分块大小
+            'memory_limit_mb': 1024,              # 内存使用限制（MB）
+            'enable_smart_sampling': True,        # 启用智能采样
+            'cache_interpolation': False,         # 缓存插值结果（实验性）
+            'parallel_processing': False,         # 并行处理（实验性）
+            'optimize_for_memory': True,          # 内存优化模式
+            'auto_gc': True,                      # 自动垃圾回收
+            'performance_monitoring': True,       # 性能监控
+            'detailed_logging': False,            # 详细日志记录
+            
+            # 错误处理选项
+            'fallback_on_memory_error': True,     # 内存错误时自动降级
+            'max_retry_attempts': 3,              # 最大重试次数
+            'error_recovery_mode': 'auto',        # 错误恢复模式（auto/manual/none）
         }
     
     @staticmethod
@@ -35,8 +54,7 @@ class DefaultSettings:
             Dict[str, Any]: 色标卡设置字典
         """
         return {
-            'auto_range': True,     # 是否自动设置范围
-            'smart_range': True,    # 是否使用智能范围计算
+            'smart_range': False,   # 是否使用智能范围计算（默认不启用）
             'vmin': None,          # 手动设置的最小值
             'vmax': None           # 手动设置的最大值
         }

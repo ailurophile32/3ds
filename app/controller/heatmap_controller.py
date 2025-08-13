@@ -41,8 +41,8 @@ class HeatmapController(BaseController):
             # 更新按钮状态
             self.view.generate_3d_button.setEnabled(self.model.get_dataset_count() > 0)
             
-            # 更新数据范围显示
-            self.update_data_range_display()
+            # 实现新的数据加载默认行为逻辑
+            self.on_data_loaded()
             
             # 如果当前在3D视图模式，自动重新生成3D热力图
             if self.view.current_view_type == 'plotly':
@@ -87,7 +87,7 @@ class HeatmapController(BaseController):
         self.view.register_callback('on_z_scale_changed', self.on_z_scale_changed)
         self.view.register_callback('on_colormap_changed', self.on_colormap_changed)
         self.view.register_callback('on_interpolation_changed', self.on_interpolation_changed)
-        self.view.register_callback('on_auto_range_changed', self.on_auto_range_changed)
+        self.view.register_callback('on_manual_range_input', self.on_manual_range_input)
         self.view.register_callback('on_smart_range_changed', self.on_smart_range_changed)
         self.view.register_callback('on_reset_range', self.on_reset_range)
         self.view.register_callback('on_apply_range', self.on_apply_range)
@@ -171,7 +171,13 @@ class HeatmapController(BaseController):
             index: 新选中的数据集索引
         """
         if 0 <= index < len(self.model.data_sets):
+            # 实现范围变化时的实时显示更新
             self.update_data_range_display()
+            
+            # 如果当前是智能范围模式，自动更新范围值
+            if self.model.colorbar_settings.get('smart_range', False):
+                vmin, vmax = self.model.get_data_range(index, smart_range=True)
+                self.view.set_range_values(vmin, vmax)
     
     def on_generate_2d(self, index: int):
         """处理生成2D热力图事件
@@ -268,28 +274,69 @@ class HeatmapController(BaseController):
         
         self.view.update_status(f'Z轴缩放比例已更改为: {z_scale:.1f}')
     
-    def on_auto_range_changed(self, auto_range: bool):
-        """处理自动范围设置变更事件
-        
-        Args:
-            auto_range: 是否自动设置范围
-        """
-        self.model.update_colorbar_settings({'auto_range': auto_range})
-        
-        if auto_range:
-            self.view.update_status('已切换到自动色标卡范围')
+    def on_data_loaded(self):
+        """数据加载后的新处理逻辑"""
+        # 自动根据智能范围计算设置色标范围
+        if self.model.colorbar_settings.get('smart_range', False):
+            # 获取当前数据集的智能范围
+            current_index = self.view.current_dataset_index
+            if current_index < self.model.get_dataset_count():
+                vmin, vmax = self.model.get_data_range(current_index, smart_range=True)
+            else:
+                # 使用最后一个数据集
+                last_index = self.model.get_dataset_count() - 1
+                if last_index >= 0:
+                    vmin, vmax = self.model.get_data_range(last_index, smart_range=True)
+                else:
+                    vmin, vmax = 0, 100  # 默认范围
         else:
-            self.view.update_status('已切换到手动色标卡范围')
-            # 如果有数据，自动填充当前数据范围
-            if self.model.get_dataset_count() > 0:
-                self.update_data_range_display()
+            # 使用原始数据范围
+            current_index = self.view.current_dataset_index
+            if current_index < self.model.get_dataset_count():
+                vmin, vmax = self.model.get_data_range(current_index, smart_range=False)
+            else:
+                # 使用最后一个数据集
+                last_index = self.model.get_dataset_count() - 1
+                if last_index >= 0:
+                    vmin, vmax = self.model.get_data_range(last_index, smart_range=False)
+                else:
+                    vmin, vmax = 0, 100  # 默认范围
         
-        # 重新生成当前视图
-        if self.model.get_dataset_count() > 0:
-            if self.view.current_view_type == '2d':
-                self.on_generate_2d(self.view.current_dataset_index)
-            elif self.view.current_view_type == 'plotly':
-                self.on_generate_3d()
+        # 更新显示但不启用手动输入框
+        self.view.set_range_values(vmin, vmax)
+        self.update_data_range_display()
+        
+        # 确保按钮状态正确
+        self.view.reset_range_button.setEnabled(True)
+        self.view.apply_range_button.setEnabled(False)  # 默认不启用，直到用户手动修改
+
+    def on_manual_range_input(self):
+        """用户手动输入范围时的处理逻辑"""
+        # 用户开始输入时，自动禁用智能范围计算
+        if self.view.smart_range_checkbox.isChecked():
+            self.view.smart_range_checkbox.setChecked(False)
+            self.model.update_colorbar_settings({'smart_range': False})
+            self.view.update_status('检测到手动输入，已自动禁用智能范围计算')
+        
+        # 启用应用按钮
+        self.view.apply_range_button.setEnabled(True)
+        
+        # 验证手动输入的范围
+        vmin = self.view.vmin_spinbox.value()
+        vmax = self.view.vmax_spinbox.value()
+        
+        # 更新手动范围设置到模型（临时存储，应用时正式生效）
+        self.model.update_colorbar_settings({
+            'vmin': vmin,
+            'vmax': vmax
+        })
+        
+        # 实现范围变化时的实时显示更新
+        self.update_data_range_display()
+        
+        if not self.validate_manual_range(vmin, vmax):
+            # 如果验证失败，禁用应用按钮
+            self.view.apply_range_button.setEnabled(False)
     
     def on_smart_range_changed(self, smart_range: bool):
         """处理智能范围计算设置变更事件
@@ -297,59 +344,173 @@ class HeatmapController(BaseController):
         Args:
             smart_range: 是否使用智能范围计算
         """
-        self.model.update_colorbar_settings({'smart_range': smart_range})
+        # 更新模型设置，同时清除手动设置的范围值
+        self.model.update_colorbar_settings({
+            'smart_range': smart_range,
+            'vmin': None,  # 清除手动设置的最小值
+            'vmax': None   # 清除手动设置的最大值
+        })
         
         if smart_range:
             self.view.update_status('已启用智能范围计算 - 将自动去除异常值')
+            # 智能范围启用时，禁用手动输入框并自动更新范围
+            self.view.vmin_spinbox.setEnabled(False)
+            self.view.vmax_spinbox.setEnabled(False)
+            self.view.apply_range_button.setEnabled(False)
+            
+            # 如果有数据，自动更新到智能范围
+            if self.model.get_dataset_count() > 0:
+                current_index = self.view.current_dataset_index
+                if 0 <= current_index < self.model.get_dataset_count():
+                    vmin, vmax = self.model.get_data_range(current_index, smart_range=True)
+                    self.view.set_range_values(vmin, vmax)
+                    # 实现范围变化时的实时显示更新
+                    self.update_data_range_display()
+                    
+                    # 自动刷新热力图显示
+                    if self.view.current_view_type == '2d':
+                        self.on_generate_2d(self.view.current_dataset_index)
+                    elif self.view.current_view_type == 'plotly':
+                        self.on_generate_3d()
         else:
-            self.view.update_status('已禁用智能范围计算 - 使用原始数据范围')
-        
-        # 如果当前是自动模式且有数据，更新显示并重新生成图形
-        if self.model.colorbar_settings['auto_range'] and self.model.get_dataset_count() > 0:
-            self.update_data_range_display()
-            # 重新生成当前视图
-            if self.view.current_view_type == '2d':
-                self.on_generate_2d(self.view.current_dataset_index)
-            elif self.view.current_view_type == 'plotly':
-                self.on_generate_3d()
+            self.view.update_status('已禁用智能范围计算 - 可手动设置范围')
+            # 智能范围禁用时，启用手动输入框和应用按钮
+            self.view.vmin_spinbox.setEnabled(True)
+            self.view.vmax_spinbox.setEnabled(True)
+            self.view.apply_range_button.setEnabled(True)
+            
+            # 如果有数据，回退到原始数据范围
+            if self.model.get_dataset_count() > 0:
+                current_index = self.view.current_dataset_index
+                if 0 <= current_index < self.model.get_dataset_count():
+                    vmin, vmax = self.model.get_data_range(current_index, smart_range=False)
+                    self.view.set_range_values(vmin, vmax)
+                    # 实现范围变化时的实时显示更新
+                    self.update_data_range_display()
+                    
+                    # 自动刷新热力图显示
+                    if self.view.current_view_type == '2d':
+                        self.on_generate_2d(self.view.current_dataset_index)
+                    elif self.view.current_view_type == 'plotly':
+                        self.on_generate_3d()
     
     def on_reset_range(self, dataset_index: int):
-        """处理重置范围事件
+        """处理重置范围事件 - 优化版本
+        
+        更新重置按钮功能，恢复到原始数据范围并启用智能计算：
+        1. 恢复到原始数据范围
+        2. 启用智能范围计算
+        3. 清除手动设置的范围值
+        4. 提供清晰的视觉状态指示
+        5. 自动刷新热力图显示
         
         Args:
             dataset_index: 数据集索引
         """
         if 0 <= dataset_index < self.model.get_dataset_count():
-            # 根据智能范围计算选项获取数据范围
-            smart_range = self.model.colorbar_settings.get('smart_range', True)
-            vmin, vmax = self.model.get_data_range(dataset_index, smart_range=smart_range)
-            
-            # 更新视图和模型
-            self.view.set_range_values(vmin, vmax)
-            self.model.update_colorbar_settings({
-                'vmin': vmin,
-                'vmax': vmax
-            })
-            
-            range_type = "智能" if smart_range else "原始"
-            self.view.update_status(f'已重置色标卡范围为{range_type}数据范围: {vmin:.2f} - {vmax:.2f} MPa')
+            try:
+                # 1. 启用智能范围计算并清除手动设置
+                self.view.smart_range_checkbox.setChecked(True)
+                self.model.update_colorbar_settings({
+                    'smart_range': True,
+                    'vmin': None,  # 清除手动设置的最小值
+                    'vmax': None   # 清除手动设置的最大值
+                })
+                
+                # 2. 获取智能范围（基于原始数据）
+                vmin, vmax = self.model.get_data_range(dataset_index, smart_range=True)
+                
+                # 3. 更新视图显示
+                self.view.set_range_values(vmin, vmax)
+                self.update_data_range_display()
+                
+                # 4. 更新控件状态 - 提供清晰的视觉状态指示
+                self.view.vmin_spinbox.setEnabled(False)
+                self.view.vmax_spinbox.setEnabled(False)
+                self.view.apply_range_button.setEnabled(False)
+                
+                # 5. 重置输入框样式，提供清晰的视觉反馈
+                self.view._reset_spinbox_style()
+                
+                # 6. 实现范围重置后的热力图自动刷新逻辑
+                self._auto_refresh_heatmap_after_reset()
+                
+                # 7. 添加操作反馈，提供清晰的视觉状态指示
+                self.view.update_status(f'✓ 已重置为智能范围计算: {vmin:.2f} - {vmax:.2f} MPa')
+                
+                # 8. 可选：显示成功提示（短暂显示）
+                self._show_operation_feedback("重置成功", "已恢复到智能范围计算模式", "success")
+                
+            except Exception as e:
+                # 错误处理和用户反馈
+                error_msg = f"重置范围失败: {str(e)}"
+                self.view.update_status(f"❌ {error_msg}")
+                self.view.message_handler.show_error("重置失败", error_msg)
+                print(f"重置范围错误: {e}")
+        else:
+            self.view.update_status("❌ 无效的数据集索引，无法重置范围")
+            self.view.message_handler.show_warning("重置失败", "请选择有效的数据集")
     
     def on_apply_range(self, settings):
-        """处理应用范围设置事件
+        """处理应用范围设置事件 - 优化版本
+        
+        优化应用按钮的启用/禁用状态管理：
+        1. 增强输入验证和错误处理
+        2. 实现范围应用后的热力图自动刷新逻辑
+        3. 添加操作反馈，提供清晰的视觉状态指示
+        4. 优化按钮状态管理
         
         Args:
             settings: 包含vmin和vmax的设置字典
         """
-        self.model.update_colorbar_settings(settings)
-        
-        if self.view.current_view_type == '2d':
-            self.on_generate_2d(self.view.current_dataset_index)
-            self.view.update_status('色标卡设置已应用到热力图')
-        elif self.view.current_view_type == 'plotly':
-            self.on_generate_3d()
-            self.view.update_status('色标卡设置已应用到热力图')
-        else:
-            self.view.update_status('请先生成热力图')
+        try:
+            # 1. 在应用设置前进行最终验证
+            vmin = settings.get('vmin', 0)
+            vmax = settings.get('vmax', 100)
+            
+            if not self.validate_manual_range(vmin, vmax):
+                # 验证失败，提供明确的错误反馈
+                self.view.update_status("❌ 范围验证失败，请检查输入值")
+                self._show_operation_feedback("应用失败", "输入的范围值无效", "error")
+                return
+            
+            # 2. 更新模型设置，确保智能范围计算被禁用
+            enhanced_settings = {
+                'smart_range': False,  # 确保手动模式
+                'vmin': vmin,
+                'vmax': vmax
+            }
+            self.model.update_colorbar_settings(enhanced_settings)
+            
+            # 3. 实现范围应用后的热力图自动刷新逻辑
+            refresh_success = self._auto_refresh_heatmap_after_apply()
+            
+            if refresh_success:
+                # 4. 优化应用按钮的启用/禁用状态管理
+                self.view.apply_range_button.setEnabled(False)  # 应用后禁用，直到下次修改
+                self.view.reset_apply_button_style()  # 重置按钮样式
+                
+                # 5. 更新数据范围显示
+                self.update_data_range_display()
+                
+                # 6. 添加操作反馈，提供清晰的视觉状态指示
+                self.view.update_status(f'✓ 手动范围已应用: {vmin:.2f} - {vmax:.2f} MPa')
+                self._show_operation_feedback("应用成功", f"范围设置已更新并刷新显示", "success")
+                
+                # 7. 重置输入框样式为正常状态
+                self.view._reset_spinbox_style()
+            else:
+                # 刷新失败的处理
+                self.view.update_status("⚠️ 范围已应用，但图形刷新失败")
+                self._show_operation_feedback("部分成功", "范围已设置，请手动重新生成图形", "warning")
+                
+        except Exception as e:
+            # 错误处理和用户反馈
+            error_msg = f"应用范围设置失败: {str(e)}"
+            self.view.update_status(f"❌ {error_msg}")
+            self.view.message_handler.show_error("应用失败", error_msg)
+            self._show_operation_feedback("应用失败", "发生未知错误", "error")
+            print(f"应用范围设置错误: {e}")
     
     
     def on_show_performance_settings(self):
@@ -371,30 +532,42 @@ class HeatmapController(BaseController):
                     self.on_generate_3d()
     
     def update_data_range_display(self):
-        """更新数据范围显示"""
+        """更新数据范围显示 - 增强版本
+        
+        增强数据范围显示功能：
+        1. 实现智能范围和原始范围的同时显示
+        2. 添加当前使用范围类型的清晰标识
+        3. 实现范围变化时的实时显示更新
+        4. 优化范围显示格式，提高可读性
+        """
         current_index = self.view.current_dataset_index
         if 0 <= current_index < self.model.get_dataset_count():
-            # 根据智能范围计算选项获取数据范围
-            smart_range = self.model.colorbar_settings.get('smart_range', True)
-            vmin, vmax = self.model.get_data_range(current_index, smart_range=smart_range)
+            # 获取智能范围计算选项
+            smart_range = self.model.colorbar_settings.get('smart_range', False)
             
-            # 同时获取原始范围用于对比显示
+            # 始终获取两种范围用于完整的信息显示
+            vmin_smart, vmax_smart = self.model.get_data_range(current_index, smart_range=True)
             vmin_raw, vmax_raw = self.model.get_data_range(current_index, smart_range=False)
             
             if smart_range:
-                self.view.update_data_range_display(vmin, vmax, vmin_raw, vmax_raw)
+                # 智能范围模式：显示智能范围作为主要信息，原始范围作为参考
+                self.view.update_data_range_display(vmin_smart, vmax_smart, vmin_raw, vmax_raw)
+                # 智能范围模式下，自动更新输入框显示值（但不启用）
+                self.view.set_range_values(vmin_smart, vmax_smart)
             else:
-                self.view.update_data_range_display(vmin, vmax)
-            
-            # 如果是手动模式且输入框为默认值，自动填充数据范围
-            if not self.model.colorbar_settings.get('auto_range', True):
-                if self.view.vmin_spinbox.value() == 0.0 and self.view.vmax_spinbox.value() == 100.0:
-                    self.view.set_range_values(vmin, vmax)
-                    self.model.update_colorbar_settings({
-                        'vmin': vmin,
-                        'vmax': vmax
-                    })
+                # 手动模式：显示原始数据范围作为参考，当前手动设置作为主要信息
+                # 获取当前手动设置的范围
+                manual_vmin = self.model.colorbar_settings.get('vmin')
+                manual_vmax = self.model.colorbar_settings.get('vmax')
+                
+                if manual_vmin is not None and manual_vmax is not None:
+                    # 有手动设置，显示手动范围和数据范围对比
+                    self.view.update_data_range_display(vmin_raw, vmax_raw, vmin_raw, vmax_raw)
+                else:
+                    # 没有手动设置，显示原始数据范围
+                    self.view.update_data_range_display(vmin_raw, vmax_raw, vmin_raw, vmax_raw)
         else:
+            # 没有数据时显示默认信息
             self.view.update_data_range_display(0, 0)
     
     def on_interpolation_changed(self, interpolation_method: str):
@@ -413,6 +586,32 @@ class HeatmapController(BaseController):
             elif self.view.current_view_type == 'plotly':
                 self.on_generate_3d()
     
+    def validate_manual_range(self, vmin: float, vmax: float) -> bool:
+        """验证用户手动输入的范围
+        
+        Args:
+            vmin: 最小值
+            vmax: 最大值
+            
+        Returns:
+            bool: 验证是否通过
+        """
+        if vmin >= vmax:
+            self.view.message_handler.show_warning("范围错误", "最小值必须小于最大值")
+            return False
+        
+        # 检查范围是否过小 - 使用更严格的阈值
+        if abs(vmax - vmin) < 1e-6:
+            self.view.message_handler.show_warning("范围错误", "范围过小，可能导致显示异常")
+            return False
+        
+        # 检查范围是否过大（可能导致性能问题）
+        if abs(vmax - vmin) > 1e6:
+            self.view.message_handler.show_warning("范围警告", "范围过大，可能影响显示效果")
+            # 不返回False，只是警告
+        
+        return True
+
     def on_flip_x_axis(self):
         """处理翻转X轴事件"""
         try:
@@ -440,3 +639,85 @@ class HeatmapController(BaseController):
         except Exception as e:
             self.view.message_handler.show_error('翻转X轴失败', f'翻转X轴时发生错误：{str(e)}')
             print(f"翻转X轴错误: {e}")
+    
+    def _auto_refresh_heatmap_after_reset(self):
+        """重置后自动刷新热力图显示
+        
+        实现重置范围后的热力图自动刷新逻辑，确保用户能立即看到变化效果
+        """
+        try:
+            if self.view.current_view_type == '2d':
+                # 重新生成2D图
+                current_index = self.view.current_dataset_index
+                if 0 <= current_index < self.model.get_dataset_count():
+                    self.on_generate_2d(current_index)
+                    return True
+            elif self.view.current_view_type == 'plotly':
+                # 重新生成3D图
+                self.on_generate_3d()
+                return True
+            else:
+                # 没有当前显示的图形，不需要刷新
+                return True
+        except Exception as e:
+            print(f"自动刷新热力图失败: {e}")
+            return False
+    
+    def _auto_refresh_heatmap_after_apply(self) -> bool:
+        """应用设置后自动刷新热力图显示
+        
+        实现范围应用后的热力图自动刷新逻辑，确保新的范围设置立即生效
+        
+        Returns:
+            bool: 刷新是否成功
+        """
+        try:
+            if self.view.current_view_type == '2d':
+                # 重新生成2D图
+                current_index = self.view.current_dataset_index
+                if 0 <= current_index < self.model.get_dataset_count():
+                    self.on_generate_2d(current_index)
+                    return True
+                else:
+                    return False
+            elif self.view.current_view_type == 'plotly':
+                # 重新生成3D图
+                self.on_generate_3d()
+                return True
+            else:
+                # 没有当前显示的图形，提示用户生成图形
+                self.view.update_status("范围已设置，请生成热力图查看效果")
+                return True
+        except Exception as e:
+            print(f"自动刷新热力图失败: {e}")
+            return False
+    
+    def _show_operation_feedback(self, title: str, message: str, feedback_type: str = "info"):
+        """显示操作反馈，提供清晰的视觉状态指示
+        
+        为用户操作提供即时的视觉反馈，增强用户体验
+        
+        Args:
+            title: 反馈标题
+            message: 反馈消息
+            feedback_type: 反馈类型 ("success", "warning", "error", "info")
+        """
+        try:
+            # 根据反馈类型选择合适的显示方式
+            if feedback_type == "success":
+                # 成功操作 - 可以使用状态栏显示，避免打断用户
+                pass  # 已在调用处更新状态栏
+            elif feedback_type == "warning":
+                # 警告 - 显示警告对话框
+                self.view.message_handler.show_warning(title, message)
+            elif feedback_type == "error":
+                # 错误 - 显示错误对话框
+                self.view.message_handler.show_error(title, message)
+            else:
+                # 信息 - 使用状态栏显示
+                pass  # 已在调用处更新状态栏
+                
+        except Exception as e:
+            print(f"显示操作反馈失败: {e}")
+            # 回退到简单的状态栏显示
+            self.view.update_status(f"{title}: {message}")
