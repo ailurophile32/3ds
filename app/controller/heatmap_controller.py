@@ -174,10 +174,20 @@ class HeatmapController(BaseController):
             # 实现范围变化时的实时显示更新
             self.update_data_range_display()
             
-            # 如果当前是智能范围模式，自动更新范围值
+            # 根据当前模式更新范围值显示
             if self.model.colorbar_settings.get('smart_range', False):
+                # 智能范围模式：使用智能计算的范围
                 vmin, vmax = self.model.get_data_range(index, smart_range=True)
                 self.view.set_range_values(vmin, vmax)
+            else:
+                # 手动模式：显示当前数据集的原始范围，让用户了解数据分布
+                vmin, vmax = self.model.get_data_range(index, smart_range=False)
+                self.view.set_range_values(vmin, vmax)
+                # 同时更新模型的设置，这样生成的热力图会使用正确的范围
+                self.model.update_colorbar_settings({
+                    'vmin': vmin,
+                    'vmax': vmax
+                })
     
     def on_generate_2d(self, index: int):
         """处理生成2D热力图事件

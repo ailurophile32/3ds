@@ -443,6 +443,9 @@ class HeatmapView(BaseView):
         """处理CSV文件双击事件，自动生成2D热力图"""
         row = self.csv_list_widget.row(item)
         if row >= 0:
+            # 先设置当前选中项，这会触发选择变更事件
+            self.csv_list_widget.setCurrentRow(row)
+            # 然后生成2D热力图
             self.trigger_callback("on_generate_2d", row)
             self.update_status(f"双击生成2D热力图: {item.text()}")
 
