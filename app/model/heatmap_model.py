@@ -1340,11 +1340,17 @@ class HeatmapModel(BaseModel):
                              connectgaps=False,  # 不连接NaN值之间的间隙
                              hidesurface=False,  # 显示表面
                              colorbar=dict(
-                                 title="应力值 (MPa)",
+                                 title=dict(
+                                     text="应力 (MPa)",
+                                     side="right",
+                                     font=dict(size=12, family="sans-serif")
+                                 ),
                                  thickness=20,
+                                 len=0.6,  # 色标卡高度为60%
+                                 y=0.5,    # 垂直居中
+                                 yanchor="middle",
                                  x=1.02,
-                                 title_font=dict(size=12),
-                                 tickfont=dict(size=10),
+                                 tickfont=dict(size=10, family="sans-serif"),
                                  # 明确设置colorbar的范围，确保与cmin/cmax一致
                                  tickvals=None,  # 让Plotly自动生成刻度
                                  ticktext=None,  # 让Plotly自动生成刻度标签
@@ -1464,31 +1470,25 @@ class HeatmapModel(BaseModel):
                     bgcolor="rgba(255,255,255,0.5)"
                 ),
                 template="plotly_white",
-                # 添加max/min标注 - 使用与Surface相同的统一范围
+                # 添加max/min标注 - 匹配缩短的色标卡位置
                 annotations=[
                     dict(
-                        x=1.01, y=0.98,
+                        x=1.12, y=0.82,
                         xref='paper', yref='paper',
                         text=f'max: {first_norm_vmax:.0f}',
                         showarrow=False,
-                        font=dict(size=11, color='black'),
+                        font=dict(size=10, color='black', family='sans-serif'),
                         xanchor='left',
-                        yanchor='top',
-                        bgcolor='rgba(255,255,255,0.8)',
-                        bordercolor='gray',
-                        borderwidth=1
+                        yanchor='bottom'
                     ),
                     dict(
-                        x=1.01, y=0.05,
+                        x=1.12, y=0.18,
                         xref='paper', yref='paper', 
                         text=f'min: {first_norm_vmin:.0f}',
                         showarrow=False,
-                        font=dict(size=11, color='black'),
+                        font=dict(size=10, color='black', family='sans-serif'),
                         xanchor='left',
-                        yanchor='bottom',
-                        bgcolor='rgba(255,255,255,0.8)',
-                        bordercolor='gray',
-                        borderwidth=1
+                        yanchor='top'
                     )
                 ]
             )
