@@ -1350,12 +1350,7 @@ class HeatmapModel(BaseModel):
                                  y=0.5,    # 垂直居中
                                  yanchor="middle",
                                  x=1.02,
-                                 tickfont=dict(size=10, family="sans-serif"),
-                                 # 明确设置colorbar的范围，确保与cmin/cmax一致
-                                 tickvals=None,  # 让Plotly自动生成刻度
-                                 ticktext=None,  # 让Plotly自动生成刻度标签
-                                 # 确保colorbar范围与Surface范围一致
-                                 dtick=None  # 自动计算刻度间隔
+                                 tickfont=dict(size=10, family="sans-serif")
                              ) if dataset_index == 0 else None,
                              name=f"{file_name} (Z={z_depth}μm)",
                              # 设置表面样式为方格效果
@@ -1470,25 +1465,27 @@ class HeatmapModel(BaseModel):
                     bgcolor="rgba(255,255,255,0.5)"
                 ),
                 template="plotly_white",
-                # 添加max/min标注 - 匹配缩短的色标卡位置
+                # 在色标上下位置添加max/min文本标签
                 annotations=[
+                    # 最大值标签 - 放置在色标上方
                     dict(
-                        x=1.12, y=0.82,
+                        x=1.02, y=0.6,
                         xref='paper', yref='paper',
                         text=f'max: {first_norm_vmax:.0f}',
                         showarrow=False,
-                        font=dict(size=10, color='black', family='sans-serif'),
+                        font=dict(size=12, color='black', family='sans-serif', weight='bold'),
                         xanchor='left',
-                        yanchor='bottom'
+                        yanchor='middle'
                     ),
+                    # 最小值标签 - 放置在色标下方
                     dict(
-                        x=1.12, y=0.18,
+                        x=1.02, y=0.18,
                         xref='paper', yref='paper', 
                         text=f'min: {first_norm_vmin:.0f}',
                         showarrow=False,
-                        font=dict(size=10, color='black', family='sans-serif'),
+                        font=dict(size=12, color='black', family='sans-serif', weight='bold'),
                         xanchor='left',
-                        yanchor='top'
+                        yanchor='middle'
                     )
                 ]
             )
