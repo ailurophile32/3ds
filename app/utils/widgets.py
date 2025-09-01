@@ -569,10 +569,10 @@ class CSVFileManager(QGroupBox):
     
     # 定义信号
     files_dropped = Signal(list)  # 拖拽文件信号
-    add_csv_clicked = Signal()  # 添加CSV按钮点击信号
-    remove_csv_clicked = Signal()  # 移除CSV按钮点击信号
-    set_z_depth_clicked = Signal()  # 设置Z轴深度按钮点击信号
-    csv_selection_changed = Signal()  # CSV选择变更信号
+    files_added = Signal(list)  # 添加文件信号
+    file_removed = Signal(int)  # 移除文件信号
+    file_selected = Signal(int)  # 文件选择信号
+    z_depth_requested = Signal(int)  # Z轴深度设置请求信号
     
     def __init__(self, parent=None):
         super().__init__("CSV文件管理（可拖拽放入）", parent)

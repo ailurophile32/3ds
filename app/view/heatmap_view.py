@@ -115,10 +115,10 @@ class HeatmapView(BaseView):
         
         # 连接信号到回调函数
         self.csv_file_manager.files_dropped.connect(self._on_files_dropped)
-        self.csv_file_manager.add_csv_clicked.connect(self._on_load_button_clicked)
-        self.csv_file_manager.remove_csv_clicked.connect(self._on_remove_button_clicked)
-        self.csv_file_manager.set_z_depth_clicked.connect(self._on_z_input_button_clicked)
-        self.csv_file_manager.csv_selection_changed.connect(self._on_csv_selection_changed)
+        self.csv_file_manager.files_added.connect(self._on_load_button_clicked)
+        self.csv_file_manager.file_removed.connect(self._on_remove_button_clicked)
+        self.csv_file_manager.z_depth_requested.connect(self._on_z_input_button_clicked)
+        self.csv_file_manager.file_selected.connect(self._on_csv_selection_changed)
         
         # 保持对CSV列表的引用以兼容现有代码
         self.csv_list_widget = self.csv_file_manager.csv_list_widget
@@ -374,39 +374,46 @@ class HeatmapView(BaseView):
         """处理加载按钮点击事件"""
         self.trigger_callback("on_load_csv")
 
-    def _on_remove_button_clicked(self):
+    def _on_remove_button_clicked(self, index=None):
         """处理移除按钮点击事件"""
-        if self.csv_list_widget.currentRow() >= 0:
-            self.trigger_callback("on_remove_csv", self.csv_list_widget.currentRow())
+        # 如果没有传递索引参数，则从选中项获取
+        if index is None:
+            index = self.csv_list_widget.currentRow()
+        
+        if index >= 0:
+            self.trigger_callback("on_remove_csv", index)
 
-    def _on_csv_selection_changed(self):
+    def _on_csv_selection_changed(self, index=None):
         """处理CSV列表选择变更事件"""
-        row = self.csv_list_widget.currentRow()
-        self.current_dataset_index = row
+        # 如果没有传递索引参数，则从选中项获取
+        if index is None:
+            index = self.csv_list_widget.currentRow()
+        
+        self.current_dataset_index = index
 
         # 根据选择状态启用/禁用按钮
-        has_selection = row >= 0
+        has_selection = index >= 0
         self.remove_button.setEnabled(has_selection)
         self.z_input_button.setEnabled(has_selection)
         self.generate_2d_button.setEnabled(has_selection)
         self.flip_x_checkbox.setEnabled(has_selection)
 
         if has_selection:
-            self.trigger_callback("on_csv_selection_changed", row)
+            self.trigger_callback("on_csv_selection_changed", index)
 
-    def _on_z_input_button_clicked(self):
+    def _on_z_input_button_clicked(self, index=None):
         """处理设置Z轴深度按钮点击事件"""
-        selected_items = self.csv_list_widget.selectedItems()
-        if not selected_items:
-            QMessageBox.warning(self, "警告", "请选择一个CSV文件！")
-            return
-
-        # 获取选中项的索引
-        selected_index = self.csv_list_widget.row(selected_items[0])
+        # 如果没有传递索引参数，则从选中项获取
+        if index is None:
+            selected_items = self.csv_list_widget.selectedItems()
+            if not selected_items:
+                QMessageBox.warning(self, "警告", "请选择一个CSV文件！")
+                return
+            index = self.csv_list_widget.row(selected_items[0])
 
         # 调用正确的回调函数
         if self.callbacks.get("on_set_z_depth"):
-            self.callbacks["on_set_z_depth"](selected_index)
+            self.callbacks["on_set_z_depth"](index)
         else:
             QMessageBox.warning(self, "错误", "回调函数未注册！")
 
