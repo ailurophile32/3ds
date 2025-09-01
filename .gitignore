@@ -16,3 +16,5 @@ sample/
 *.csv
 .vscode/
 .kiro/
+
+CLAUDE.md
