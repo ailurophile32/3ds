@@ -633,7 +633,7 @@ class HeatmapView(BaseView):
         ):
             # 用户开始手动输入时，自动禁用智能范围计算
             if self.smart_range_checkbox.isChecked():
-                self.smart_range_checkbox.setChecked(False)
+                self.update_smart_range_status(False)
                 # 启用手动输入框
                 self.vmin_spinbox.setEnabled(True)
                 self.vmax_spinbox.setEnabled(True)
@@ -810,7 +810,7 @@ class HeatmapView(BaseView):
         self.status_label.setText(message)
 
     def update_data_range_display(
-        self, vmin: float, vmax: float, vmin_raw: float = None, vmax_raw: float = None
+        self, vmin: float, vmax: float, vmin_raw: float = None, vmax_raw: float = None, smart_range_enabled: bool | None = None
     ):
         """更新数据范围显示 - 增强版本
         
@@ -825,9 +825,13 @@ class HeatmapView(BaseView):
             vmax: 最大值（可能经过智能范围计算）
             vmin_raw: 原始最小值（未经过智能范围计算）
             vmax_raw: 原始最大值（未经过智能范围计算）
+            smart_range_enabled: 可选，明确指定当前是否启用智能范围；若为 None，则以复选框状态为准
         """
+        # 以参数为准决定当前显示模式，未提供则回退到复选框状态
+        use_smart = smart_range_enabled if smart_range_enabled is not None else self.smart_range_checkbox.isChecked()
+        
         # 根据当前使用的范围类型显示不同的信息
-        if self.smart_range_checkbox.isChecked():
+        if use_smart:
             # 智能范围计算启用时，显示智能范围和原始范围对比
             if vmin_raw is not None and vmax_raw is not None:
                 # 计算智能范围相对于原始范围的变化
@@ -861,7 +865,7 @@ class HeatmapView(BaseView):
             self.data_range_label.setText(display_text)
         
         # 添加范围跨度信息和实时更新
-        current_range_span = (self.vmax_spinbox.value() - self.vmin_spinbox.value()) if not self.smart_range_checkbox.isChecked() else (vmax - vmin)
+        current_range_span = (self.vmax_spinbox.value() - self.vmin_spinbox.value()) if not use_smart else (vmax - vmin)
         self._update_range_span_info(current_range_span, vmin, vmax, vmin_raw, vmax_raw)
         
         # 实现范围变化时的实时显示更新 - 添加动态样式
@@ -984,8 +988,8 @@ class HeatmapView(BaseView):
             f'</div>'
         )
     
-    def _update_range_span_info(self, range_span: float, vmin: float = None, vmax: float = None, 
-                               vmin_raw: float = None, vmax_raw: float = None):
+    def _update_range_span_info(self, range_span: float, vmin: Optional[float] = None, vmax: Optional[float] = None, 
+                               vmin_raw: Optional[float] = None, vmax_raw: Optional[float] = None):
         """更新范围跨度信息显示 - 增强版本
         
         提供额外的范围信息，帮助用户理解数据分布
@@ -1043,8 +1047,8 @@ class HeatmapView(BaseView):
         
         tooltip_info = "\n".join(tooltip_lines)
         self.data_range_label.setToolTip(tooltip_info)
-    
-    def _update_display_style_based_on_range_type(self):
+
+    def _update_display_style_based_on_range_type(self) -> None:
         """根据范围类型更新显示样式
         
         实现范围变化时的实时显示更新，添加动态样式效果
@@ -1078,12 +1082,15 @@ class HeatmapView(BaseView):
         self.data_range_label.setWordWrap(True)
         self.data_range_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-    def set_range_values(self, vmin: float, vmax: float):
+    def set_range_values(self, vmin: float, vmax: float) -> None:
         """设置手动范围值
 
+        该方法在设置 SpinBox 值时会临时屏蔽相关信号，
+        以避免误触发手动输入检测逻辑，从而保持 UI 与模型状态一致。
+
         Args:
-            vmin: 最小值
-            vmax: 最大值
+            vmin: 手动范围最小值
+            vmax: 手动范围最大值
         """
         # 暂时断开信号连接，避免触发手动输入检测
         self.vmin_spinbox.blockSignals(True)
@@ -1098,7 +1105,7 @@ class HeatmapView(BaseView):
         self.vmin_spinbox.blockSignals(False)
         self.vmax_spinbox.blockSignals(False)
 
-    def show_2d_figure(self, fig: Figure):
+    def show_2d_figure(self, fig: Figure) -> None:
         """显示2D热力图
 
         Args:
@@ -1118,7 +1125,7 @@ class HeatmapView(BaseView):
         self.current_view_type = "2d"
         self.save_button.setEnabled(True)
 
-    def show_3d_figure(self, fig):
+    def show_3d_figure(self, fig: Any) -> None:
         """显示3D Plotly热力图
 
         Args:
@@ -1142,7 +1149,7 @@ class HeatmapView(BaseView):
         self.current_view_type = "plotly"
         self.save_button.setEnabled(True)
 
-    def _clear_visualization(self):
+    def _clear_visualization(self) -> None:
         """清除可视化区域的内容"""
         # 清除当前可视化控件
         if self.current_view_type == "2d" and self.current_canvas:
@@ -1155,7 +1162,7 @@ class HeatmapView(BaseView):
             # 不删除plotly_view对象，而是隐藏它以便重用
             self.plotly_view.hide()
 
-    def _setup_mouse_hover_events(self, fig: Figure):
+    def _setup_mouse_hover_events(self, fig: Figure) -> None:
         """设置鼠标悬停事件处理
 
         Args:
@@ -1167,7 +1174,7 @@ class HeatmapView(BaseView):
             # 连接鼠标离开事件
             self.current_canvas.mpl_connect("axes_leave_event", self._on_mouse_leave)
 
-    def _on_mouse_move(self, event: MouseEvent):
+    def _on_mouse_move(self, event: MouseEvent) -> None:
         """鼠标移动事件处理
 
         Args:
@@ -1232,7 +1239,7 @@ class HeatmapView(BaseView):
         except Exception as e:
             print(f"鼠标悬停事件处理错误: {e}")
 
-    def _on_mouse_leave(self, event):
+    def _on_mouse_leave(self, event: MouseEvent) -> None:
         """鼠标离开坐标轴事件处理
 
         Args:
@@ -1242,7 +1249,7 @@ class HeatmapView(BaseView):
 
     def _show_hover_annotation(
         self, x: float, y: float, pressure: float, z_depth: float, ax
-    ):
+    ) -> None:
         """显示悬停信息注释
 
         Args:
@@ -1285,7 +1292,7 @@ class HeatmapView(BaseView):
         except Exception as e:
             print(f"显示悬停注释错误: {e}")
 
-    def _hide_hover_annotation(self):
+    def _hide_hover_annotation(self) -> None:
         """隐藏悬停信息注释"""
         try:
             if self.hover_annotation is not None:
@@ -1322,7 +1329,7 @@ class HeatmapView(BaseView):
 
         return file_path
 
-    def update_flip_x_status(self, is_flipped: bool):
+    def update_flip_x_status(self, is_flipped: bool) -> None:
         """更新X轴翻转勾选框状态
 
         Args:
@@ -1332,6 +1339,17 @@ class HeatmapView(BaseView):
         self.flip_x_checkbox.blockSignals(True)
         self.flip_x_checkbox.setChecked(is_flipped)
         self.flip_x_checkbox.blockSignals(False)
+
+    def update_smart_range_status(self, is_smart: bool) -> None:
+        """更新智能范围勾选框状态
+
+        Args:
+            is_smart: 是否启用智能范围
+        """
+        # 暂时断开信号连接，避免触发回调
+        self.smart_range_checkbox.blockSignals(True)
+        self.smart_range_checkbox.setChecked(is_smart)
+        self.smart_range_checkbox.blockSignals(False)
 
     def show_z_depth_dialog(self, current_z: float = 0.0) -> Tuple[float, bool]:
         """显示Z轴深度设置对话框

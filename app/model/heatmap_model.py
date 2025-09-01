@@ -1252,16 +1252,14 @@ class HeatmapModel(BaseModel):
                 subplot_titles=[" "]
             )
             
-            # 使用原始数据范围计算逻辑，不使用get_effective_range（与重置范围逻辑一致）
-            # 确保colorbar_settings中的vmin/vmax已被清除或正确设置
-            self._global_vmin, self._global_vmax = self.get_data_range(None, smart_range=False)
-            print(f"DEBUG: 3D热力图使用原始数据范围: vmin={self._global_vmin:.2f}, vmax={self._global_vmax:.2f}")
+            # 根据colorbar_settings中的smart_range设置决定使用哪种范围计算方式
+            smart_range_enabled = self.colorbar_settings.get('smart_range', False)
+            self._global_vmin, self._global_vmax = self.get_data_range(None, smart_range=smart_range_enabled)
             
             # 预先计算统一的色标设置，确保所有Surface使用相同范围
             plotly_colorscale, norm_vmin, norm_vmax = self._get_custom_plotly_colorscale(
                 self._global_vmin, self._global_vmax
             )
-            print(f"DEBUG: 统一色标范围: norm_vmin={norm_vmin:.2f}, norm_vmax={norm_vmax:.2f}")
             
             # 为每个数据集创建方格地毯图层
             for dataset_index, (data, z_depth, file_name) in enumerate(self.data_sets):

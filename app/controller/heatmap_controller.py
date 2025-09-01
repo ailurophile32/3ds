@@ -277,26 +277,38 @@ class HeatmapController(BaseController):
             progress_dialog.setLabelText("3D图形已创建，正在准备显示...")
             QApplication.processEvents()
             
-            # 先清除任何现有的手动设置，确保使用原始数据范围（与重置范围逻辑一致）
-            self.model.update_colorbar_settings({
-                'smart_range': False,  # 禁用智能范围
-                'vmin': None,  # 清除手动设置的最小值
-                'vmax': None   # 清除手动设置的最大值
-            })
+            # 获取当前智能范围设置状态
+            current_smart_range = self.model.colorbar_settings.get('smart_range', False)
             
-            # 获取原始数据范围（与重置范围完全相同的逻辑）
-            vmin_raw, vmax_raw = self.model.get_data_range(None, smart_range=False)
+            if current_smart_range:
+                # 智能范围模式：使用智能计算的范围
+                vmin, vmax = self.model.get_data_range(None, smart_range=True)
+                # 保持智能范围设置，清除手动设置的范围值
+                self.model.update_colorbar_settings({
+                    'smart_range': True,  # 保持智能范围启用
+                    'vmin': None,  # 清除手动设置的最小值
+                    'vmax': None   # 清除手动设置的最大值
+                })
+            else:
+                # 手动范围模式：获取当前设置的范围值或使用原始数据范围
+                manual_vmin = self.model.colorbar_settings.get('vmin')
+                manual_vmax = self.model.colorbar_settings.get('vmax')
+                
+                if manual_vmin is not None and manual_vmax is not None:
+                    # 使用当前手动设置的范围
+                    vmin, vmax = manual_vmin, manual_vmax
+                else:
+                    # 没有手动设置，使用原始数据范围
+                    vmin, vmax = self.model.get_data_range(None, smart_range=False)
+                    self.model.update_colorbar_settings({
+                        'smart_range': False,  # 保持手动范围模式
+                        'vmin': vmin,  # 设置为所有数据集的最小值
+                        'vmax': vmax   # 设置为所有数据集的最大值
+                    })
             
-            # 现在设置为手动范围（确保3D图形使用正确的范围）
-            self.model.update_colorbar_settings({
-                'smart_range': False,  # 禁用智能范围
-                'vmin': vmin_raw,  # 设置为所有数据集的最小值
-                'vmax': vmax_raw   # 设置为所有数据集的最大值
-            })
-            
-            # 更新视图显示
-            self.view.smart_range_checkbox.setChecked(False)  # 取消智能范围勾选
-            self.view.set_range_values(vmin_raw, vmax_raw)
+            # 更新视图显示（保持当前的智能范围状态）
+            self.view.update_smart_range_status(current_smart_range)
+            self.view.set_range_values(vmin, vmax)
             
             # 显示3D图形（确保色标范围已正确设置）
             self.view.show_3d_figure(fig)
@@ -304,11 +316,16 @@ class HeatmapController(BaseController):
             # 更新数据范围显示为3D模式（显示所有数据集的综合范围）
             self.update_data_range_display()
             
-            # 设置控件状态
-            self.view.vmin_spinbox.setEnabled(True)  # 启用手动输入框
-            self.view.vmax_spinbox.setEnabled(True)
+            # 设置控件状态（根据智能范围启用情况切换）
+            if current_smart_range:
+                self.view.vmin_spinbox.setEnabled(False)
+                self.view.vmax_spinbox.setEnabled(False)
+                self.view.apply_range_button.setEnabled(False)
+            else:
+                self.view.vmin_spinbox.setEnabled(True)
+                self.view.vmax_spinbox.setEnabled(True)
+                self.view.apply_range_button.setEnabled(False)  # 默认不启用，直到用户手动修改
             self.view.reset_range_button.setEnabled(True)
-            self.view.apply_range_button.setEnabled(False)  # 默认不启用，直到用户手动修改
             
             # 关闭进度对话框
             progress_dialog.close()
@@ -361,42 +378,56 @@ class HeatmapController(BaseController):
     
     def on_data_loaded(self):
         """数据加载后的新处理逻辑"""
-        # 首次启动时，默认使用数据的最大最小值范围来显示热力图
+        # 获取当前的智能范围设置，默认保持原有状态
+        current_smart_range = self.model.colorbar_settings.get('smart_range', False)
+
+        # 首次启动时，根据当前视图类型决定使用哪个数据集的范围
         if self.model.get_dataset_count() > 0:
-            # 根据当前视图类型决定使用哪个数据集的范围
             if self.view.current_view_type == 'plotly':
-                # 3D视图模式：使用所有数据集的综合范围
-                vmin, vmax = self.model.get_data_range(None, smart_range=False)
+                target_index = None  # 3D视图模式：使用所有数据集的综合范围
             else:
-                # 2D视图模式：使用最后一个数据集（刚加载的数据集）的范围
-                last_index = self.model.get_dataset_count() - 1
-                vmin, vmax = self.model.get_data_range(last_index, smart_range=False)
+                target_index = self.model.get_dataset_count() - 1  # 2D：使用最后一个（新加载）
+
+            if current_smart_range:
+                vmin, vmax = self.model.get_data_range(target_index, smart_range=True)
+                # 保持智能范围启用，清除手动设置
+                self.model.update_colorbar_settings({
+                    'smart_range': True,
+                    'vmin': None,
+                    'vmax': None
+                })
+            else:
+                vmin, vmax = self.model.get_data_range(target_index, smart_range=False)
+                # 手动模式下，用原始范围初始化
+                self.model.update_colorbar_settings({
+                    'smart_range': False,
+                    'vmin': vmin,
+                    'vmax': vmax
+                })
         else:
             vmin, vmax = 0, 100  # 默认范围
-        
-        # 更新色标设置为手动模式，使用数据的最大最小值范围
-        self.model.update_colorbar_settings({
-            'smart_range': False,  # 禁用智能范围
-            'vmin': vmin,  # 设置为数据最小值
-            'vmax': vmax   # 设置为数据最大值
-        })
-        
-        # 更新视图显示
-        self.view.smart_range_checkbox.setChecked(False)  # 取消智能范围勾选
+
+        # 更新视图显示（不强制修改智能范围为 False，保持与模型一致）
+        self.view.update_smart_range_status(current_smart_range)
         self.view.set_range_values(vmin, vmax)
         self.update_data_range_display()
-        
-        # 设置控件状态
-        self.view.vmin_spinbox.setEnabled(True)  # 启用手动输入框
-        self.view.vmax_spinbox.setEnabled(True)
+
+        # 设置控件状态：智能范围启用时禁用手动输入；否则启用
+        if current_smart_range:
+            self.view.vmin_spinbox.setEnabled(False)
+            self.view.vmax_spinbox.setEnabled(False)
+            self.view.apply_range_button.setEnabled(False)
+        else:
+            self.view.vmin_spinbox.setEnabled(True)
+            self.view.vmax_spinbox.setEnabled(True)
+            self.view.apply_range_button.setEnabled(False)  # 默认不启用，直到用户手动修改
         self.view.reset_range_button.setEnabled(True)
-        self.view.apply_range_button.setEnabled(False)  # 默认不启用，直到用户手动修改
 
     def on_manual_range_input(self):
         """用户手动输入范围时的处理逻辑"""
         # 用户开始输入时，自动禁用智能范围计算
         if self.view.smart_range_checkbox.isChecked():
-            self.view.smart_range_checkbox.setChecked(False)
+            self.view.update_smart_range_status(False)
             self.model.update_colorbar_settings({'smart_range': False})
             self.view.update_status('检测到手动输入，已自动禁用智能范围计算')
         
@@ -433,6 +464,9 @@ class HeatmapController(BaseController):
             'vmax': None   # 清除手动设置的最大值
         })
         
+        # 同步更新视图中的智能范围复选框状态
+        self.view.update_smart_range_status(smart_range)
+        
         if smart_range:
             self.view.update_status('已启用智能范围计算 - 将自动去除异常值')
             # 智能范围启用时，禁用手动输入框并自动更新范围
@@ -442,18 +476,25 @@ class HeatmapController(BaseController):
             
             # 如果有数据，自动更新到智能范围
             if self.model.get_dataset_count() > 0:
+                # 修复：确保 current_dataset_index 有效，如果无效则使用第一个数据集
                 current_index = self.view.current_dataset_index
-                if 0 <= current_index < self.model.get_dataset_count():
-                    vmin, vmax = self.model.get_data_range(current_index, smart_range=True)
-                    self.view.set_range_values(vmin, vmax)
-                    # 实现范围变化时的实时显示更新
-                    self.update_data_range_display()
-                    
-                    # 自动刷新热力图显示
-                    if self.view.current_view_type == '2d':
-                        self.on_generate_2d(self.view.current_dataset_index)
-                    elif self.view.current_view_type == 'plotly':
-                        self.on_generate_3d()
+                if current_index < 0 or current_index >= self.model.get_dataset_count():
+                    current_index = 0
+                    self.view.current_dataset_index = 0
+                    # 同步更新列表选择
+                    if self.view.csv_list_widget.count() > 0:
+                        self.view.csv_list_widget.setCurrentRow(0)
+                
+                vmin, vmax = self.model.get_data_range(current_index, smart_range=True)
+                self.view.set_range_values(vmin, vmax)
+                # 实现范围变化时的实时显示更新
+                self.update_data_range_display()
+                
+                # 自动刷新热力图显示
+                if self.view.current_view_type == '2d':
+                    self.on_generate_2d(current_index)
+                elif self.view.current_view_type == 'plotly':
+                    self.on_generate_3d()
         else:
             self.view.update_status('已禁用智能范围计算 - 可手动设置范围')
             # 智能范围禁用时，启用手动输入框和应用按钮
@@ -463,18 +504,25 @@ class HeatmapController(BaseController):
             
             # 如果有数据，回退到原始数据范围
             if self.model.get_dataset_count() > 0:
+                # 修复：确保 current_dataset_index 有效，如果无效则使用第一个数据集
                 current_index = self.view.current_dataset_index
-                if 0 <= current_index < self.model.get_dataset_count():
-                    vmin, vmax = self.model.get_data_range(current_index, smart_range=False)
-                    self.view.set_range_values(vmin, vmax)
-                    # 实现范围变化时的实时显示更新
-                    self.update_data_range_display()
-                    
-                    # 自动刷新热力图显示
-                    if self.view.current_view_type == '2d':
-                        self.on_generate_2d(self.view.current_dataset_index)
-                    elif self.view.current_view_type == 'plotly':
-                        self.on_generate_3d()
+                if current_index < 0 or current_index >= self.model.get_dataset_count():
+                    current_index = 0
+                    self.view.current_dataset_index = 0
+                    # 同步更新列表选择
+                    if self.view.csv_list_widget.count() > 0:
+                        self.view.csv_list_widget.setCurrentRow(0)
+                
+                vmin, vmax = self.model.get_data_range(current_index, smart_range=False)
+                self.view.set_range_values(vmin, vmax)
+                # 实现范围变化时的实时显示更新
+                self.update_data_range_display()
+                
+                # 自动刷新热力图显示
+                if self.view.current_view_type == '2d':
+                    self.on_generate_2d(current_index)
+                elif self.view.current_view_type == 'plotly':
+                    self.on_generate_3d()
     
     def on_reset_range(self, dataset_index: int):
         """处理重置范围事件 - 优化版本
@@ -492,7 +540,7 @@ class HeatmapController(BaseController):
         if 0 <= dataset_index < self.model.get_dataset_count():
             try:
                 # 1. 清除手动设置的范围值，并将智能范围设为未勾选
-                self.view.smart_range_checkbox.setChecked(False)
+                self.view.update_smart_range_status(False)
                 self.model.update_colorbar_settings({
                     'smart_range': False,  # 设为未勾选状态
                     'vmin': None,  # 清除手动设置的最小值
@@ -631,7 +679,7 @@ class HeatmapController(BaseController):
         """
         if self.model.get_dataset_count() == 0:
             # 没有数据时显示默认信息
-            self.view.update_data_range_display(0, 0)
+            self.view.update_data_range_display(0, 0, smart_range_enabled=self.model.colorbar_settings.get('smart_range', False))
             return
             
         # 获取智能范围计算选项
@@ -649,12 +697,12 @@ class HeatmapController(BaseController):
                 vmin_smart, vmax_smart = self.model.get_data_range(current_index, smart_range=True)
                 vmin_raw, vmax_raw = self.model.get_data_range(current_index, smart_range=False)
             else:
-                self.view.update_data_range_display(0, 0)
+                self.view.update_data_range_display(0, 0, smart_range_enabled=smart_range)
                 return
         
         if smart_range:
             # 智能范围模式：显示智能范围作为主要信息，原始范围作为参考
-            self.view.update_data_range_display(vmin_smart, vmax_smart, vmin_raw, vmax_raw)
+            self.view.update_data_range_display(vmin_smart, vmax_smart, vmin_raw, vmax_raw, smart_range_enabled=True)
             # 智能范围模式下，自动更新输入框显示值（但不启用）
             self.view.set_range_values(vmin_smart, vmax_smart)
         else:
@@ -665,13 +713,15 @@ class HeatmapController(BaseController):
             
             if manual_vmin is not None and manual_vmax is not None:
                 # 有手动设置，显示手动范围作为主要信息，原始数据范围作为参考
-                self.view.update_data_range_display(manual_vmin, manual_vmax, vmin_raw, vmax_raw)
+                # 注意：update_data_range_display 的 vmin/vmax 形参代表“数据范围基线”，而非手动值
+                # 这里应传入当前数据的原始范围作为基线，以便在视图中用当前输入框（手动值）与数据范围进行对比
+                self.view.update_data_range_display(vmin_raw, vmax_raw, vmin_raw, vmax_raw, smart_range_enabled=False)
                 # 在3D模式下，也要更新输入框显示手动设置的范围
                 if self.view.current_view_type == 'plotly':
                     self.view.set_range_values(manual_vmin, manual_vmax)
             else:
                 # 没有手动设置，显示原始数据范围并更新输入框
-                self.view.update_data_range_display(vmin_raw, vmax_raw, vmin_raw, vmax_raw)
+                self.view.update_data_range_display(vmin_raw, vmax_raw, vmin_raw, vmax_raw, smart_range_enabled=False)
                 self.view.set_range_values(vmin_raw, vmax_raw)
     
     def on_interpolation_changed(self, interpolation_method: str):
