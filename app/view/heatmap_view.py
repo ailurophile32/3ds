@@ -370,9 +370,9 @@ class HeatmapView(BaseView):
         """处理拖拽文件事件"""
         self.trigger_callback("on_files_dropped", file_paths)
     
-    def _on_load_button_clicked(self):
-        """处理加载按钮点击事件"""
-        self.trigger_callback("on_load_csv")
+    def _on_load_button_clicked(self, file_paths):
+        """处理加载按钮点击事件（接收CSVFileManager传来的文件路径列表）"""
+        self.trigger_callback("on_load_csv", file_paths)
 
     def _on_remove_button_clicked(self, index=None):
         """处理移除按钮点击事件"""

@@ -99,12 +99,19 @@ class HeatmapController(BaseController):
         # 初始化视图状态，同步模型的翻转状态到视图
         self.view.update_flip_x_status(self.model._x_axis_flipped)
     
-    def on_load_csv(self):
-        """处理加载CSV文件事件"""
+    def on_load_csv(self, file_paths=None):
+        """处理加载CSV文件事件
+        
+        支持两种入口：
+        1) 由CSVFileManager选择文件后通过信号传入 file_paths
+        2) 无参数时，在此处弹出文件选择对话框
+        """
         try:
-            file_paths, _ = QFileDialog.getOpenFileNames(
-                self.view, '选择CSV文件', '', 'CSV文件 (*.csv)'
-            )
+            # 若未提供文件路径，则由控制器弹出文件选择框
+            if not file_paths:
+                file_paths, _ = QFileDialog.getOpenFileNames(
+                    self.view, '选择CSV文件', '', 'CSV文件 (*.csv)'
+                )
             
             if not file_paths:
                 return
@@ -124,15 +131,8 @@ class HeatmapController(BaseController):
             if first_file_loaded:
                 last_index = len(self.model.data_sets) - 1
                 if last_index >= 0:
-                    self.view.csv_list_widget.setCurrentRow(last_index)
-                    
-                    # 根据当前视图类型自动生成热力图
-                    if self.view.current_view_type == 'plotly':
-                        # 如果当前在3D视图，生成3D热力图
-                        self.on_generate_3d()
-                    else:
-                        # 否则生成2D热力图
-                        self.on_generate_2d(last_index)
+                    self._apply_import_initial_logic(last_index)
+                    self._apply_import_initial_logic(last_index)
         except Exception as e:
             self.handle_exception(e, "加载CSV文件")
     
@@ -177,6 +177,7 @@ class HeatmapController(BaseController):
                     else:
                         # 否则生成2D热力图
                         self.on_generate_2d(last_index)
+                    self._apply_import_initial_logic(last_index)
         except Exception as e:
             self.handle_exception(e, "处理拖拽文件")
     
@@ -875,3 +876,49 @@ class HeatmapController(BaseController):
             print(f"显示操作反馈失败: {e}")
             # 回退到简单的状态栏显示
             self.view.update_status(f"{title}: {message}")
+
+    def _apply_import_initial_logic(self, last_index: int) -> None:
+        """导入完成后的统一初始逻辑
+        
+        目标：
+        - 默认关闭智能范围（smart_range=False）
+        - 使用原始范围作为手动初始值（vmin/vmax）
+        - 同步更新视图控件状态与范围显示
+        - 根据当前视图类型自动生成 2D/3D 热力图
+        
+        Args:
+            last_index: 刚导入/当前选中的数据集索引
+        """
+        if last_index < 0:
+            return
+        
+        # 选中数据集
+        self.view.csv_list_widget.setCurrentRow(last_index)
+        
+        # 依据视图类型选择范围基准
+        if self.view.current_view_type == 'plotly':
+            target_index = None  # 3D 视图：使用所有数据集综合范围
+        else:
+            target_index = last_index  # 2D 视图：使用当前数据集范围
+        
+        # 计算原始范围并设置为手动初始值
+        vmin, vmax = self.model.get_data_range(target_index, smart_range=False)
+        self.model.update_colorbar_settings({
+            'smart_range': False,
+            'vmin': vmin,
+            'vmax': vmax
+        })
+        
+        # 同步视图状态
+        self.view.update_smart_range_status(False)
+        self.view.set_range_values(vmin, vmax)
+        self.update_data_range_display()
+        self.view.vmin_spinbox.setEnabled(True)
+        self.view.vmax_spinbox.setEnabled(True)
+        self.view.apply_range_button.setEnabled(False)
+        
+        # 自动生成热力图
+        if self.view.current_view_type == 'plotly':
+            self.on_generate_3d()
+        else:
+            self.on_generate_2d(last_index)
