@@ -1553,7 +1553,121 @@ class HeatmapModel(BaseModel):
                 'resolution': self.performance_settings['resolution']
             })
             return None
-    
+
+    def generate_layer_thumbnails(self, thumb_resolution: int = None) -> Tuple[List[np.ndarray], List[str]]:
+        """生成每个数据集对应的2D层缩略图（与3D视图一致的配色与范围）
+
+        Args:
+            thumb_resolution: 缩略图生成时使用的网格分辨率；默认使用性能设置中的 resolution
+
+        Returns:
+            Tuple[List[np.ndarray], List[str]]: (RGBA图像数组列表, 对应标签列表)
+        """
+        if len(self.data_sets) == 0:
+            return [], []
+
+        try:
+            import numpy as np  # 局部导入以避免全局依赖更改
+            from matplotlib import cm  # 仅当需要非自定义色标时使用
+
+            # 统一的色标范围与色图，与3D视图保持一致
+            smart_range = self.colorbar_settings.get('smart_range', False)
+            vmin, vmax = self.get_data_range(None, smart_range=smart_range)
+            if vmin is None or vmax is None:
+                # 安全兜底，遍历原始值获取范围
+                vals = []
+                for data, _z, _name in self.data_sets:
+                    vals.append(data['Value'].values)
+                all_vals = np.concatenate(vals)
+                all_vals = all_vals[~np.isnan(all_vals)]
+                if all_vals.size == 0:
+                    vmin, vmax = 0.0, 1.0
+                else:
+                    vmin, vmax = float(np.min(all_vals)), float(np.max(all_vals))
+            if abs(vmax - vmin) < 1e-12:
+                vmax = vmin + 1e-6
+
+            # 获取色图对象
+            if self.current_colormap == 'coolwarm':
+                cmap, _nvmin, _nvmax = self._get_normalized_colormap(vmin, vmax)
+            else:
+                cmap = cm.get_cmap(self.current_colormap)
+
+            # 网格分辨率
+            resolution = thumb_resolution or self.performance_settings.get('resolution', 200)
+
+            # 先收集临时条目，随后按Z从大到小排序，使预览从上到下与3D视图自上而下一致
+            tmp_entries: List[Tuple[float, np.ndarray, str]] = []
+
+            for dataset_index, (data, z_depth, file_name) in enumerate(self.data_sets):
+                try:
+                    x = data['X'].values
+                    y = data['Y'].values
+                    values = data['Value'].values
+
+                    # 计算中心与半径
+                    x_center = (x.max() + x.min()) / 2
+                    y_center = (y.max() + y.min()) / 2
+                    radius = max(x.max() - x.min(), y.max() - y.min()) / 2
+
+                    # 创建规则网格
+                    xi = np.linspace(x_center - radius, x_center + radius, resolution)
+                    yi = np.linspace(y_center - radius, y_center + radius, resolution)
+                    xi_grid, yi_grid = np.meshgrid(xi, yi)
+
+                    # 插值
+                    if len(x) < 4:
+                        # 点数过少，跳过此层
+                        continue
+                    zi_grid = self._interpolate_data(x, y, values, xi_grid, yi_grid)
+
+                    # 圆形遮罩
+                    grid_distances = np.sqrt((xi_grid - x_center) ** 2 + (yi_grid - y_center) ** 2)
+                    mask_grid = grid_distances > radius * 0.98
+                    zi_grid = zi_grid.copy()
+                    zi_grid[mask_grid] = np.nan
+
+                    # 若无有效数据，跳过
+                    if np.all(np.isnan(zi_grid)):
+                        continue
+
+                    # 归一化到 [0,1]
+                    norm = (zi_grid - vmin) / (vmax - vmin)
+                    # 有效像素掩码
+                    valid = ~np.isnan(norm)
+                    norm = np.clip(norm, 0.0, 1.0, out=np.zeros_like(norm), where=valid)
+
+                    h, w = zi_grid.shape
+                    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+
+                    # 对有效像素应用色图（返回0..255的RGBA）
+                    if np.any(valid):
+                        colors = cmap(norm[valid], bytes=True)
+                        # matplotlib 可能返回 (N,4) uint8 或 float，需要确保为uint8
+                        if colors.dtype != np.uint8:
+                            colors = (np.clip(colors, 0.0, 1.0) * 255).astype(np.uint8)
+                        rgba[valid] = colors
+
+                    # 对无效像素设为透明
+                    rgba[~valid] = np.array([255, 255, 255, 0], dtype=np.uint8)
+
+                    label = f"Z={z_depth}μm  |  {file_name}"
+                    tmp_entries.append((float(z_depth), rgba, label))
+                except Exception as inner_e:
+                    # 单层失败不影响整体
+                    print(f"生成缩略图时发生错误（层 {dataset_index}）: {inner_e}")
+                    continue
+
+            # 关键：按Z从大到小排序
+            tmp_entries.sort(key=lambda t: t[0], reverse=True)
+            images: List[np.ndarray] = [img for _z, img, _label in tmp_entries]
+            labels: List[str] = [lbl for _z, _img, lbl in tmp_entries]
+
+            return images, labels
+        except Exception as e:
+            print(f"生成层缩略图失败: {e}")
+            return [], []
+
     def save_heatmap(self, output_path: str, figure_type: str = '2d', dpi: int = 300):
         """保存热力图
         

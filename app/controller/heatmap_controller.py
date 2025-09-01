@@ -242,6 +242,11 @@ class HeatmapController(BaseController):
             index: 数据集索引
         """
         try:
+            # 切换到2D视图时隐藏右侧预览
+            if hasattr(self.view, "preview_scroll_area"):
+                self.view.clear_layer_previews()
+                self.view.preview_scroll_area.hide()
+
             fig = self.model.create_circular_heatmap_2d(index)
             self.view.show_2d_figure(fig)
             self.view.update_status('2D圆形热力图生成完成')
@@ -316,7 +321,15 @@ class HeatmapController(BaseController):
             
             # 更新数据范围显示为3D模式（显示所有数据集的综合范围）
             self.update_data_range_display()
-            
+
+            # 生成并显示右侧2D层缩略图预览
+            try:
+                images, labels = self.model.generate_layer_thumbnails()
+                self.view.clear_layer_previews()
+                self.view.update_layer_previews(images, labels)
+            except Exception as preview_e:
+                print(f"生成或更新层预览失败: {preview_e}")
+
             # 设置控件状态（根据智能范围启用情况切换）
             if current_smart_range:
                 self.view.vmin_spinbox.setEnabled(False)

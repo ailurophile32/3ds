@@ -9,7 +9,7 @@ from typing import Optional, Dict, Any, Callable, List, Tuple
 
 import numpy as np
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QVBoxLayout,
@@ -361,10 +361,35 @@ class HeatmapView(BaseView):
         right_layout = QVBoxLayout(right_panel)
         h_splitter.addWidget(right_panel, 3)  # 右侧面板占更多空间
 
-        # 创建可视化图形区域（一个框架）
+        # 可视化+预览容器
+        visual_container = QWidget()
+        visual_container_layout = QHBoxLayout(visual_container)
+        visual_container_layout.setContentsMargins(0, 0, 0, 0)
+        visual_container_layout.setSpacing(12)
+
+        # 创建可视化图形区域（一个框架)
         self.visualization_frame = QFrame()
         self.visualization_layout = QVBoxLayout(self.visualization_frame)
-        right_layout.addWidget(self.visualization_frame)
+        self.visualization_frame.setMinimumSize(QSize(600, 400))
+        visual_container_layout.addWidget(self.visualization_frame, 1)
+
+        # 右侧2D层缩略图滚动栏
+        self.preview_scroll_area = QScrollArea()
+        self.preview_scroll_area.setWidgetResizable(True)
+        self.preview_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.preview_scroll_area.setMinimumWidth(220)
+
+        self.preview_container = QWidget()
+        self.preview_layout = QVBoxLayout(self.preview_container)
+        self.preview_layout.setContentsMargins(6, 6, 6, 6)
+        self.preview_layout.setSpacing(8)
+        self.preview_layout.addStretch(1)
+        self.preview_scroll_area.setWidget(self.preview_container)
+        self.preview_scroll_area.hide()  # 初始隐藏，仅在3D模式下显示
+
+        visual_container_layout.addWidget(self.preview_scroll_area)
+
+        right_layout.addWidget(visual_container, 1)
 
     def _on_files_dropped(self, file_paths):
         """处理拖拽文件事件"""
@@ -801,76 +826,7 @@ class HeatmapView(BaseView):
             file_name = current_text.split(" (Z=")[0]
             item.setText(f"{file_name} (Z={z_depth}μm)")
 
-    def update_status(self, message: str):
-        """更新状态栏消息
 
-        Args:
-            message: 状态消息
-        """
-        self.status_label.setText(message)
-
-    def update_data_range_display(
-        self, vmin: float, vmax: float, vmin_raw: float = None, vmax_raw: float = None, smart_range_enabled: bool | None = None
-    ):
-        """更新数据范围显示 - 增强版本
-        
-        增强数据范围显示功能：
-        1. 实现智能范围和原始范围的同时显示
-        2. 添加当前使用范围类型的清晰标识
-        3. 实现范围变化时的实时显示更新
-        4. 优化范围显示格式，提高可读性
-
-        Args:
-            vmin: 最小值（可能经过智能范围计算）
-            vmax: 最大值（可能经过智能范围计算）
-            vmin_raw: 原始最小值（未经过智能范围计算）
-            vmax_raw: 原始最大值（未经过智能范围计算）
-            smart_range_enabled: 可选，明确指定当前是否启用智能范围；若为 None，则以复选框状态为准
-        """
-        # 以参数为准决定当前显示模式，未提供则回退到复选框状态
-        use_smart = smart_range_enabled if smart_range_enabled is not None else self.smart_range_checkbox.isChecked()
-        
-        # 根据当前使用的范围类型显示不同的信息
-        if use_smart:
-            # 智能范围计算启用时，显示智能范围和原始范围对比
-            if vmin_raw is not None and vmax_raw is not None:
-                # 计算智能范围相对于原始范围的变化
-                original_span = vmax_raw - vmin_raw
-                smart_span = vmax - vmin
-                
-                if original_span > 0:
-                    range_reduction = ((original_span - smart_span) / original_span) * 100
-                    range_info = f" (优化 {range_reduction:.1f}%)" if range_reduction > 1 else ""
-                else:
-                    range_info = ""
-                
-                # 增强的智能范围显示，包含更多信息
-                display_text = self._format_smart_range_display(
-                    vmin, vmax, vmin_raw, vmax_raw, range_info
-                )
-                self.data_range_label.setText(display_text)
-            else:
-                # 只有智能范围信息时的显示
-                display_text = self._format_smart_range_only_display(vmin, vmax)
-                self.data_range_label.setText(display_text)
-        else:
-            # 手动模式时，显示当前使用的范围
-            current_vmin = self.vmin_spinbox.value()
-            current_vmax = self.vmax_spinbox.value()
-            
-            # 增强的手动范围显示
-            display_text = self._format_manual_range_display(
-                current_vmin, current_vmax, vmin, vmax, vmin_raw, vmax_raw
-            )
-            self.data_range_label.setText(display_text)
-        
-        # 添加范围跨度信息和实时更新
-        current_range_span = (self.vmax_spinbox.value() - self.vmin_spinbox.value()) if not use_smart else (vmax - vmin)
-        self._update_range_span_info(current_range_span, vmin, vmax, vmin_raw, vmax_raw)
-        
-        # 实现范围变化时的实时显示更新 - 添加动态样式
-        self._update_display_style_based_on_range_type()
-    
     def _format_smart_range_display(self, vmin: float, vmax: float, vmin_raw: float, vmax_raw: float, range_info: str) -> str:
         """格式化智能范围显示文本
         
@@ -1124,6 +1080,9 @@ class HeatmapView(BaseView):
         self.visualization_layout.addWidget(self.current_canvas)
         self.current_view_type = "2d"
         self.save_button.setEnabled(True)
+        # 隐藏右侧预览栏（仅3D模式使用）
+        if hasattr(self, "preview_scroll_area"):
+            self.preview_scroll_area.hide()
 
     def show_3d_figure(self, fig: Any) -> None:
         """显示3D Plotly热力图
@@ -1161,6 +1120,7 @@ class HeatmapView(BaseView):
             self.visualization_layout.removeWidget(self.plotly_view)
             # 不删除plotly_view对象，而是隐藏它以便重用
             self.plotly_view.hide()
+        # 注意：不清理或修改右侧预览区域，由专用方法管理
 
     def _setup_mouse_hover_events(self, fig: Figure) -> None:
         """设置鼠标悬停事件处理
@@ -1364,3 +1324,196 @@ class HeatmapView(BaseView):
         if dialog.exec():
             return dialog.get_z_depth(), True
         return current_z, False
+
+    def clear_layer_previews(self) -> None:
+        """清空右侧2D层预览内容"""
+        try:
+            if hasattr(self, "preview_layout") and self.preview_layout is not None:
+                # 删除除最后一个stretch外的所有项目
+                while self.preview_layout.count() > 1:
+                    item = self.preview_layout.takeAt(0)
+                    widget = item.widget()
+                    if widget is not None:
+                        widget.deleteLater()
+        except Exception as e:
+            print(f"清空预览失败: {e}")
+
+    def update_layer_previews(self, images: List[np.ndarray], labels: Optional[List[str]] = None, thumb_width: int = 180) -> None:
+        """更新右侧2D层缩略图预览
+
+        Args:
+            images: RGBA或RGB的numpy数组列表 (H, W, 3/4)
+            labels: 每个缩略图下方的文本标签
+            thumb_width: 每张缩略图的显示宽度
+        """
+        try:
+            self.clear_layer_previews()
+            if images is None or len(images) == 0:
+                self.preview_scroll_area.hide()
+                return
+
+            for idx, img in enumerate(images):
+                # 创建容器
+                card = QFrame()
+                card.setStyleSheet("QFrame { background: white; border: 1px solid #e74c3c; border-radius: 6px; }")
+                v = QVBoxLayout(card)
+                v.setContentsMargins(6, 6, 6, 6)
+                v.setSpacing(6)
+
+                # 将numpy图像转换为QPixmap
+                h, w = img.shape[0], img.shape[1]
+                if img.dtype != np.uint8:
+                    img = np.clip(img, 0, 255).astype(np.uint8)
+                channels = img.shape[2] if img.ndim == 3 else 1
+                if channels == 4:
+                    fmt = QImage.Format_RGBA8888
+                elif channels == 3:
+                    fmt = QImage.Format_RGB888
+                else:
+                    # 灰度转为RGB
+                    img = np.repeat(img.reshape(h, w, 1), 3, axis=2)
+                    fmt = QImage.Format_RGB888
+                qimg = QImage(img.data, w, h, img.strides[0], fmt)
+                pix = QPixmap.fromImage(qimg)
+
+                # 按宽度等比缩放
+                scaled = pix.scaledToWidth(thumb_width, Qt.SmoothTransformation)
+                pic = QLabel()
+                pic.setAlignment(Qt.AlignCenter)
+                pic.setPixmap(scaled)
+                v.addWidget(pic)
+
+                # 标签
+                if labels and idx < len(labels):
+                    text = QLabel(labels[idx])
+                else:
+                    text = QLabel(f"Layer {idx+1}")
+                text.setAlignment(Qt.AlignCenter)
+                text.setStyleSheet("color: #2c3e50; font-size: 11px;")
+                v.addWidget(text)
+
+                self.preview_layout.insertWidget(self.preview_layout.count() - 1, card)
+
+            # 显示预览区域
+            self.preview_scroll_area.show()
+        except Exception as e:
+            print(f"更新预览失败: {e}")
+
+    def update_dataset_list(self, data_sets: List[Tuple]):
+        """更新数据集列表显示
+
+        Args:
+            data_sets: 数据集列表[(数据, Z轴深度, 文件名), ...]
+        """
+        self.csv_list_widget.clear()
+        for data, z_depth, file_name in data_sets:
+            self.csv_list_widget.addItem(f"{file_name} (Z={z_depth}μm)")
+
+        # 更新按钮状态
+        has_datasets = len(data_sets) > 0
+        self.remove_button.setEnabled(has_datasets)
+        self.z_input_button.setEnabled(has_datasets)
+        self.generate_2d_button.setEnabled(has_datasets)
+        self.generate_3d_button.setEnabled(has_datasets)
+        self.flip_x_checkbox.setEnabled(has_datasets)
+        self.reset_range_button.setEnabled(has_datasets)
+        self.apply_range_button.setEnabled(has_datasets)
+
+        # 如果之前有选中的项目，尝试维持选择状态
+        if has_datasets and self.current_dataset_index >= 0:
+            if self.current_dataset_index < len(data_sets):
+                self.csv_list_widget.setCurrentRow(self.current_dataset_index)
+            else:
+                # 如果当前选中索引超出范围，选择最后一项
+                self.csv_list_widget.setCurrentRow(len(data_sets) - 1)
+                self.current_dataset_index = len(data_sets) - 1
+
+    def update_z_depth_display(self, index: int, z_depth: float):
+        """更新特定数据集的Z轴深度显示
+
+        Args:
+            index: 数据集索引
+            z_depth: 新的Z轴深度值
+        """
+        item = self.csv_list_widget.item(index)
+        if item:
+            current_text = item.text()
+            file_name = current_text.split(" (Z=")[0]
+            item.setText(f"{file_name} (Z={z_depth}μm)")
+
+    def update_status(self, message: str):
+        """更新状态栏消息
+
+        Args:
+            message: 状态消息
+        """
+        self.status_label.setText(message)
+
+    def update_data_range_display(
+        self, vmin: float, vmax: float, vmin_raw: float = None, vmax_raw: float = None, smart_range_enabled: bool | None = None
+    ):
+        """更新数据范围显示 - 增强版本
+        
+        增强数据范围显示功能：
+        1. 实现智能范围和原始范围的同时显示
+        2. 添加当前使用范围类型的清晰标识
+        3. 实现范围变化时的实时显示更新
+        4. 优化范围显示格式，提高可读性
+
+        Args:
+            vmin: 最小值（可能经过智能范围计算）
+            vmax: 最大值（可能经过智能范围计算）
+            vmin_raw: 原始最小值（未经过智能范围计算）
+            vmax_raw: 原始最大值（未经过智能范围计算）
+            smart_range_enabled: 可选，明确指定当前是否启用智能范围；若为 None，则以复选框状态为准
+        """
+        # 以参数为准决定当前显示模式，未提供则回退到复选框状态
+        use_smart = smart_range_enabled if smart_range_enabled is not None else self.smart_range_checkbox.isChecked()
+
+        # 生成显示内容
+        if use_smart:
+            # 智能范围：优先显示与原始范围的对比信息
+            if vmin_raw is not None and vmax_raw is not None:
+                original_span = vmax_raw - vmin_raw
+                smart_span = vmax - vmin
+                if original_span > 0:
+                    range_reduction = ((original_span - smart_span) / original_span) * 100
+                    range_info = f" (优化 {range_reduction:.1f}%)" if range_reduction > 1 else ""
+                else:
+                    range_info = ""
+                label_html = self._format_smart_range_display(vmin, vmax, vmin_raw, vmax_raw, range_info)
+            else:
+                # 仅有智能范围，无原始范围可对比
+                label_html = self._format_smart_range_only_display(vmin, vmax)
+        else:
+            # 手动范围：与数据范围对比（若提供原始范围则以原始为准）
+            data_vmin = vmin_raw if vmin_raw is not None else vmin
+            data_vmax = vmax_raw if vmax_raw is not None else vmax
+            label_html = self._format_manual_range_display(
+                current_vmin=self.vmin_spinbox.value(),
+                current_vmax=self.vmax_spinbox.value(),
+                vmin=data_vmin,
+                vmax=data_vmax,
+                vmin_raw=vmin_raw,
+                vmax_raw=vmax_raw,
+            )
+
+        # 应用到界面
+        self.data_range_label.setText(label_html)
+        self._update_display_style_based_on_range_type()
+
+        # 更新额外的范围跨度提示信息（用于 tooltip）
+        try:
+            if use_smart:
+                current_span = max(0.0, (vmax - vmin))
+                self._update_range_span_info(current_span, vmin=vmin, vmax=vmax, vmin_raw=vmin_raw, vmax_raw=vmax_raw)
+            else:
+                manual_vmin = self.vmin_spinbox.value()
+                manual_vmax = self.vmax_spinbox.value()
+                current_span = max(0.0, (manual_vmax - manual_vmin))
+                data_vmin = vmin_raw if vmin_raw is not None else vmin
+                data_vmax = vmax_raw if vmax_raw is not None else vmax
+                self._update_range_span_info(current_span, vmin=data_vmin, vmax=data_vmax, vmin_raw=vmin_raw, vmax_raw=vmax_raw)
+        except Exception:
+            # 安静失败，避免影响主流程
+            pass
