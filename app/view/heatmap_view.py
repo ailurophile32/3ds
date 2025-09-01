@@ -39,6 +39,7 @@ from app.utils.widgets import (
     PlotlyWebView,
     ZDepthInputDialog,
     PerformanceSettingsDialog,
+    CSVFileManager,
 )
 from app.view.base_view import BaseView
 
@@ -59,6 +60,7 @@ class HeatmapView(BaseView):
         self.callbacks.update(
             {
                 "on_load_csv": None,
+                "on_files_dropped": None,  # 新增：拖拽文件处理
                 "on_remove_csv": None,
                 "on_set_z_depth": None,
                 "on_generate_2d": None,
@@ -108,38 +110,25 @@ class HeatmapView(BaseView):
         self.left_layout = QVBoxLayout(left_panel)
         h_splitter.addWidget(left_panel, 1)
 
-        # CSV文件管理区域
-        csv_group = QGroupBox("CSV文件管理")
-        csv_layout = QVBoxLayout(csv_group)
-
-        # CSV列表
-        self.csv_list_widget = QListWidget()
-        self.csv_list_widget.itemSelectionChanged.connect(
-            self._on_csv_selection_changed
-        )
-        # 添加双击事件处理，双击文件名自动生成2D热力图
+        # CSV文件管理区域 - 使用新的拖拽组件
+        self.csv_file_manager = CSVFileManager()
+        
+        # 连接信号到回调函数
+        self.csv_file_manager.files_dropped.connect(self._on_files_dropped)
+        self.csv_file_manager.add_csv_clicked.connect(self._on_load_button_clicked)
+        self.csv_file_manager.remove_csv_clicked.connect(self._on_remove_button_clicked)
+        self.csv_file_manager.set_z_depth_clicked.connect(self._on_z_input_button_clicked)
+        self.csv_file_manager.csv_selection_changed.connect(self._on_csv_selection_changed)
+        
+        # 保持对CSV列表的引用以兼容现有代码
+        self.csv_list_widget = self.csv_file_manager.csv_list_widget
+        self.remove_button = self.csv_file_manager.remove_button
+        self.z_input_button = self.csv_file_manager.z_depth_button
+        
+        # 添加双击事件处理
         self.csv_list_widget.itemDoubleClicked.connect(self._on_csv_double_clicked)
-        csv_layout.addWidget(self.csv_list_widget)
-
-        # CSV操作按钮
-        csv_buttons = QHBoxLayout()
-
-        self.load_button = QPushButton("添加CSV")
-        self.load_button.clicked.connect(self._on_load_button_clicked)
-        csv_buttons.addWidget(self.load_button)
-
-        self.remove_button = QPushButton("移除CSV")
-        self.remove_button.clicked.connect(self._on_remove_button_clicked)
-        self.remove_button.setEnabled(False)
-        csv_buttons.addWidget(self.remove_button)
-
-        self.z_input_button = QPushButton("设置Z轴深度")
-        self.z_input_button.clicked.connect(self._on_z_input_button_clicked)
-        self.z_input_button.setEnabled(False)
-        csv_buttons.addWidget(self.z_input_button)
-
-        csv_layout.addLayout(csv_buttons)
-        self.left_layout.addWidget(csv_group)
+        
+        self.left_layout.addWidget(self.csv_file_manager)
 
         # 热力图生成控制区域
         control_group = QGroupBox("热力图控制")
@@ -377,6 +366,10 @@ class HeatmapView(BaseView):
         self.visualization_layout = QVBoxLayout(self.visualization_frame)
         right_layout.addWidget(self.visualization_frame)
 
+    def _on_files_dropped(self, file_paths):
+        """处理拖拽文件事件"""
+        self.trigger_callback("on_files_dropped", file_paths)
+    
     def _on_load_button_clicked(self):
         """处理加载按钮点击事件"""
         self.trigger_callback("on_load_csv")

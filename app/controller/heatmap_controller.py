@@ -79,6 +79,7 @@ class HeatmapController(BaseController):
     def init_callbacks(self):
         """初始化视图回调函数"""
         self.view.register_callback('on_load_csv', self.on_load_csv)
+        self.view.register_callback('on_files_dropped', self.on_files_dropped)  # 新增：拖拽文件处理
         self.view.register_callback('on_remove_csv', self.on_remove_csv)
         self.view.register_callback('on_set_z_depth', self.on_set_z_depth)
         self.view.register_callback('on_generate_2d', self.on_generate_2d)
@@ -134,6 +135,50 @@ class HeatmapController(BaseController):
                         self.on_generate_2d(last_index)
         except Exception as e:
             self.handle_exception(e, "加载CSV文件")
+    
+    def on_files_dropped(self, file_paths):
+        """处理拖拽文件事件
+        
+        Args:
+            file_paths: 拖拽的文件路径列表
+        """
+        try:
+            # 过滤出CSV文件
+            csv_files = [path for path in file_paths if path.lower().endswith('.csv')]
+            
+            if not csv_files:
+                self.view.show_error('错误', '请拖拽CSV文件')
+                return
+            
+            first_file_loaded = False
+            for file_path in csv_files:
+                # 弹出Z轴深度设置对话框
+                z_depth, ok = self.view.show_z_depth_dialog()
+                
+                if ok:
+                    if self.model.load_csv(file_path, z_depth):
+                        first_file_loaded = True
+                    else:
+                        self.view.show_error('错误', f'加载失败: {file_path}')
+                else:
+                    # 用户取消了Z轴深度设置，停止处理后续文件
+                    break
+            
+            # 自动选择最后一个数据集并根据当前视图类型生成相应热力图
+            if first_file_loaded:
+                last_index = len(self.model.data_sets) - 1
+                if last_index >= 0:
+                    self.view.csv_list_widget.setCurrentRow(last_index)
+                    
+                    # 根据当前视图类型自动生成热力图
+                    if self.view.current_view_type == 'plotly':
+                        # 如果当前在3D视图，生成3D热力图
+                        self.on_generate_3d()
+                    else:
+                        # 否则生成2D热力图
+                        self.on_generate_2d(last_index)
+        except Exception as e:
+            self.handle_exception(e, "处理拖拽文件")
     
     def on_remove_csv(self, index: int):
         """处理移除CSV文件事件

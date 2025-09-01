@@ -1,19 +1,19 @@
-"""
-可重用UI组件和控件工具
+"""可重用UI组件和控件工具
 
-提供各种可重用的UI组件，简化视图层的构建，提高代码复用性。
-"""
+提供各种可重用的UI组件，简化视图层的构建，提高代码复用性。"""
 import os
 import tempfile
 import traceback
-from typing import Optional, Callable, Dict, Any, Tuple
+from pathlib import Path
+from typing import Optional, Callable, Dict, Any, Tuple, List
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QFont, QDragEnterEvent, QDropEvent, QPainter, QPen, QBrush
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QDialog, QFormLayout, QHBoxLayout, QLabel, QSlider,
-    QPushButton, QComboBox, QCheckBox, QDoubleSpinBox, QVBoxLayout
+    QPushButton, QComboBox, QCheckBox, QDoubleSpinBox, QVBoxLayout,
+    QWidget, QListWidget, QGroupBox, QFrame
 )
 import plotly.graph_objects as go
 
@@ -428,3 +428,276 @@ class PerformanceSettingsDialog(QDialog):
             'show_points': self.show_points_checkbox.isChecked(),
             'grid_width': self.grid_width_slider.value(),
         }
+
+
+class CSVDropArea(QFrame):
+    """支持拖拽CSV文件的区域组件"""
+    
+    # 定义信号
+    files_dropped = Signal(list)  # 当文件被拖拽到区域时发出信号
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.setMinimumHeight(150)
+        self.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
+        self.setLineWidth(2)
+        
+        # 设置样式
+        self.setStyleSheet("""
+            CSVDropArea {
+                border: 2px dashed #aaa;
+                border-radius: 10px;
+                background-color: #f9f9f9;
+                color: #666;
+            }
+            CSVDropArea:hover {
+                border-color: #007acc;
+                background-color: #f0f8ff;
+            }
+        """)
+        
+        # 创建布局和标签
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        
+        self.label = QLabel("拖拽CSV文件到此处\n或点击下方按钮添加文件")
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                color: #666;
+                background: transparent;
+                border: none;
+            }
+        """)
+        layout.addWidget(self.label)
+        
+        # 添加文件图标提示
+        icon_label = QLabel("📁")
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("""
+            QLabel {
+                font-size: 32px;
+                background: transparent;
+                border: none;
+            }
+        """)
+        layout.insertWidget(0, icon_label)
+    
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """处理拖拽进入事件"""
+        if event.mimeData().hasUrls():
+            # 检查是否包含CSV文件
+            csv_files = []
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    file_path = url.toLocalFile()
+                    if file_path.lower().endswith('.csv'):
+                        csv_files.append(file_path)
+            
+            if csv_files:
+                event.acceptProposedAction()
+                self.setStyleSheet("""
+                    CSVDropArea {
+                        border: 2px dashed #007acc;
+                        border-radius: 10px;
+                        background-color: #e6f3ff;
+                        color: #007acc;
+                    }
+                """)
+                self.label.setText(f"释放以添加 {len(csv_files)} 个CSV文件")
+            else:
+                event.ignore()
+        else:
+            event.ignore()
+    
+    def dragLeaveEvent(self, event):
+        """处理拖拽离开事件"""
+        self.setStyleSheet("""
+            CSVDropArea {
+                border: 2px dashed #aaa;
+                border-radius: 10px;
+                background-color: #f9f9f9;
+                color: #666;
+            }
+            CSVDropArea:hover {
+                border-color: #007acc;
+                background-color: #f0f8ff;
+            }
+        """)
+        self.label.setText("拖拽CSV文件到此处\n或点击下方按钮添加文件")
+    
+    def dropEvent(self, event: QDropEvent):
+        """处理文件拖拽释放事件"""
+        csv_files = []
+        for url in event.mimeData().urls():
+            if url.isLocalFile():
+                file_path = url.toLocalFile()
+                if file_path.lower().endswith('.csv') and Path(file_path).exists():
+                    csv_files.append(file_path)
+        
+        if csv_files:
+            self.files_dropped.emit(csv_files)
+            event.acceptProposedAction()
+            
+            # 恢复原始样式
+            self.dragLeaveEvent(None)
+        else:
+            event.ignore()
+    
+    def paintEvent(self, event):
+        """自定义绘制事件"""
+        super().paintEvent(event)
+        
+        # 可以在这里添加额外的绘制逻辑，比如虚线边框动画等
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # 绘制虚线边框（如果需要更精细的控制）
+        pen = QPen(Qt.DashLine)
+        pen.setColor(Qt.gray)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        
+        # 这里可以添加更多自定义绘制逻辑
+        painter.end()
+
+
+class CSVFileManager(QGroupBox):
+    """CSV文件管理组件，支持拖拽功能"""
+    
+    # 定义信号
+    files_dropped = Signal(list)  # 拖拽文件信号
+    add_csv_clicked = Signal()  # 添加CSV按钮点击信号
+    remove_csv_clicked = Signal()  # 移除CSV按钮点击信号
+    set_z_depth_clicked = Signal()  # 设置Z轴深度按钮点击信号
+    csv_selection_changed = Signal()  # CSV选择变更信号
+    
+    def __init__(self, parent=None):
+        super().__init__("CSV文件管理（可拖拽放入）", parent)
+        self.setAcceptDrops(True)  # 启用拖拽功能
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化用户界面"""
+        layout = QVBoxLayout(self)
+        
+        # CSV文件列表
+        self.csv_list_widget = QListWidget()
+        self.csv_list_widget.itemSelectionChanged.connect(self._on_selection_changed)
+        self.csv_list_widget.itemDoubleClicked.connect(self._on_double_clicked)
+        self.csv_list_widget.setAcceptDrops(True)  # 列表也支持拖拽
+        layout.addWidget(self.csv_list_widget)
+        
+        # 操作按钮
+        buttons_layout = QHBoxLayout()
+        
+        self.add_button = QPushButton("添加CSV")
+        self.add_button.clicked.connect(self._on_add_button_clicked)
+        buttons_layout.addWidget(self.add_button)
+        
+        self.remove_button = QPushButton("移除CSV")
+        self.remove_button.clicked.connect(self._on_remove_button_clicked)
+        self.remove_button.setEnabled(False)
+        buttons_layout.addWidget(self.remove_button)
+        
+        self.z_depth_button = QPushButton("设置Z轴深度")
+        self.z_depth_button.clicked.connect(self._on_z_depth_button_clicked)
+        self.z_depth_button.setEnabled(False)
+        buttons_layout.addWidget(self.z_depth_button)
+        
+        layout.addLayout(buttons_layout)
+    
+    def _on_selection_changed(self):
+        """处理选择变更事件"""
+        row = self.csv_list_widget.currentRow()
+        has_selection = row >= 0
+        
+        self.remove_button.setEnabled(has_selection)
+        self.z_depth_button.setEnabled(has_selection)
+        
+        if has_selection:
+            self.file_selected.emit(row)
+    
+    def _on_double_clicked(self, item):
+        """处理双击事件"""
+        row = self.csv_list_widget.row(item)
+        # 可以在这里触发特定的双击行为，比如生成2D热力图
+        pass
+    
+    def _on_add_button_clicked(self):
+        """处理添加按钮点击事件"""
+        from PySide6.QtWidgets import QFileDialog
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self, '选择CSV文件', '', 'CSV文件 (*.csv)'
+        )
+        if file_paths:
+            self.files_added.emit(file_paths)
+    
+    def _on_remove_button_clicked(self):
+        """处理移除按钮点击事件"""
+        row = self.csv_list_widget.currentRow()
+        if row >= 0:
+            self.file_removed.emit(row)
+    
+    def _on_z_depth_button_clicked(self):
+        """处理Z轴深度设置按钮点击事件"""
+        row = self.csv_list_widget.currentRow()
+        if row >= 0:
+            self.z_depth_requested.emit(row)
+    
+    def update_file_list(self, data_sets: List[Tuple]):
+        """更新文件列表显示"""
+        self.csv_list_widget.clear()
+        for i, (data, z_depth, file_name) in enumerate(data_sets):
+            display_text = f"{file_name} (Z: {z_depth} μm)"
+            self.csv_list_widget.addItem(display_text)
+    
+    def set_current_row(self, row: int):
+        """设置当前选中行"""
+        if 0 <= row < self.csv_list_widget.count():
+            self.csv_list_widget.setCurrentRow(row)
+    
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """拖拽进入事件"""
+        if event.mimeData().hasUrls():
+            # 检查是否包含CSV文件
+            csv_files = []
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    file_path = url.toLocalFile()
+                    if file_path.lower().endswith('.csv'):
+                        csv_files.append(file_path)
+            
+            if csv_files:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        else:
+            event.ignore()
+    
+    def dragMoveEvent(self, event):
+        """拖拽移动事件"""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def dropEvent(self, event: QDropEvent):
+        """拖拽释放事件"""
+        if event.mimeData().hasUrls():
+            csv_files = []
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    file_path = url.toLocalFile()
+                    if file_path.lower().endswith('.csv'):
+                        csv_files.append(file_path)
+            
+            if csv_files:
+                self.files_dropped.emit(csv_files)
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        else:
+            event.ignore()
