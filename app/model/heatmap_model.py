@@ -1252,9 +1252,8 @@ class HeatmapModel(BaseModel):
                 subplot_titles=[" "]
             )
             
-            # 根据colorbar_settings中的smart_range设置决定使用哪种范围计算方式
-            smart_range_enabled = self.colorbar_settings.get('smart_range', False)
-            self._global_vmin, self._global_vmax = self.get_data_range(None, smart_range=smart_range_enabled)
+            # 使用get_effective_range方法获取正确的范围，该方法会优先考虑手动设置的范围
+            self._global_vmin, self._global_vmax = self.get_effective_range(None)
             
             # 预先计算统一的色标设置，确保所有Surface使用相同范围
             plotly_colorscale, norm_vmin, norm_vmax = self._get_custom_plotly_colorscale(
