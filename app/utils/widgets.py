@@ -461,7 +461,7 @@ class CSVDropArea(QFrame):
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
         
-        self.label = QLabel("拖拽CSV文件到此处\n或点击下方按钮添加文件")
+        self.label = QLabel("拖拽CSV/Excel文件到此处\n或点击下方按钮添加文件")
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setStyleSheet("""
             QLabel {
@@ -488,12 +488,12 @@ class CSVDropArea(QFrame):
     def dragEnterEvent(self, event: QDragEnterEvent):
         """处理拖拽进入事件"""
         if event.mimeData().hasUrls():
-            # 检查是否包含CSV文件
+            # 检查是否包含CSV或Excel文件
             csv_files = []
             for url in event.mimeData().urls():
                 if url.isLocalFile():
                     file_path = url.toLocalFile()
-                    if file_path.lower().endswith('.csv'):
+                    if file_path.lower().endswith(('.csv', '.xlsx', '.xls')):
                         csv_files.append(file_path)
             
             if csv_files:
@@ -506,7 +506,7 @@ class CSVDropArea(QFrame):
                         color: #007acc;
                     }
                 """)
-                self.label.setText(f"释放以添加 {len(csv_files)} 个CSV文件")
+                self.label.setText(f"释放以添加 {len(csv_files)} 个CSV/Excel文件")
             else:
                 event.ignore()
         else:
@@ -526,7 +526,7 @@ class CSVDropArea(QFrame):
                 background-color: #f0f8ff;
             }
         """)
-        self.label.setText("拖拽CSV文件到此处\n或点击下方按钮添加文件")
+        self.label.setText("拖拽CSV/Excel文件到此处\n或点击下方按钮添加文件")
     
     def dropEvent(self, event: QDropEvent):
         """处理文件拖拽释放事件"""
@@ -534,7 +534,7 @@ class CSVDropArea(QFrame):
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 file_path = url.toLocalFile()
-                if file_path.lower().endswith('.csv') and Path(file_path).exists():
+                if file_path.lower().endswith(('.csv', '.xlsx', '.xls')) and Path(file_path).exists():
                     csv_files.append(file_path)
         
         if csv_files:
@@ -575,7 +575,7 @@ class CSVFileManager(QGroupBox):
     z_depth_requested = Signal(int)  # Z轴深度设置请求信号
     
     def __init__(self, parent=None):
-        super().__init__("CSV文件管理（可拖拽放入）", parent)
+        super().__init__("CSV/Excel文件管理（可拖拽放入）", parent)
         self.setAcceptDrops(True)  # 启用拖拽功能
         self.init_ui()
     
@@ -593,11 +593,11 @@ class CSVFileManager(QGroupBox):
         # 操作按钮
         buttons_layout = QHBoxLayout()
         
-        self.add_button = QPushButton("添加CSV")
+        self.add_button = QPushButton("添加CSV/Excel")
         self.add_button.clicked.connect(self._on_add_button_clicked)
         buttons_layout.addWidget(self.add_button)
         
-        self.remove_button = QPushButton("移除CSV")
+        self.remove_button = QPushButton("移除文件")
         self.remove_button.clicked.connect(self._on_remove_button_clicked)
         self.remove_button.setEnabled(False)
         buttons_layout.addWidget(self.remove_button)
@@ -630,7 +630,7 @@ class CSVFileManager(QGroupBox):
         """处理添加按钮点击事件"""
         from PySide6.QtWidgets import QFileDialog
         file_paths, _ = QFileDialog.getOpenFileNames(
-            self, '选择CSV文件', '', 'CSV文件 (*.csv)'
+            self, '选择CSV/Excel文件', '', 'CSV/Excel 文件 (*.csv *.xlsx *.xls)'
         )
         if file_paths:
             self.files_added.emit(file_paths)
@@ -662,12 +662,12 @@ class CSVFileManager(QGroupBox):
     def dragEnterEvent(self, event: QDragEnterEvent):
         """拖拽进入事件"""
         if event.mimeData().hasUrls():
-            # 检查是否包含CSV文件
+            # 检查是否包含CSV或Excel文件
             csv_files = []
             for url in event.mimeData().urls():
                 if url.isLocalFile():
                     file_path = url.toLocalFile()
-                    if file_path.lower().endswith('.csv'):
+                    if file_path.lower().endswith(('.csv', '.xlsx', '.xls')):
                         csv_files.append(file_path)
             
             if csv_files:
@@ -691,7 +691,7 @@ class CSVFileManager(QGroupBox):
             for url in event.mimeData().urls():
                 if url.isLocalFile():
                     file_path = url.toLocalFile()
-                    if file_path.lower().endswith('.csv'):
+                    if file_path.lower().endswith(('.csv', '.xlsx', '.xls')):
                         csv_files.append(file_path)
             
             if csv_files:

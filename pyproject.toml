@@ -17,4 +17,6 @@ dependencies = [
     "pyside6>=6.5.0",
     "plotly>=5.0.0",
     "kaleido>=0.1.0",
+    "openpyxl>=3.1.5",
+    "xlrd>=2.0.2",
 ]

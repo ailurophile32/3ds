@@ -7,6 +7,10 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QProgressDialog, QFileDialog
 from typing import Any
 
+# 新增：用于Excel读取与临时文件
+import pandas as pd
+import tempfile
+import os
 from app.controller.base_controller import BaseController
 from app.model.heatmap_model import HeatmapModel
 from app.utils.widgets import PerformanceSettingsDialog
@@ -110,7 +114,7 @@ class HeatmapController(BaseController):
             # 若未提供文件路径，则由控制器弹出文件选择框
             if not file_paths:
                 file_paths, _ = QFileDialog.getOpenFileNames(
-                    self.view, '选择CSV文件', '', 'CSV文件 (*.csv)'
+                    self.view, '选择CSV/Excel文件', '', 'CSV/Excel 文件 (*.csv *.xlsx *.xls)'
                 )
             
             if not file_paths:
@@ -121,17 +125,62 @@ class HeatmapController(BaseController):
                 # 弹出Z轴深度设置对话框
                 z_depth, ok = self.view.show_z_depth_dialog()
                 
-                if ok:
-                    if self.model.load_csv(file_path, z_depth):
-                        first_file_loaded = True
-                    else:
-                        self.view.show_error('错误', f'加载失败: {file_path}')
+                if not ok:
+                    break
+                
+                ok_load = False
+                if file_path.lower().endswith('.xlsx'):
+                    # 将Excel读取后保存为临时CSV，再走现有模型流程，避免重复校验逻辑
+                    try:
+                        df = pd.read_excel(file_path, engine='openpyxl')
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
+                            temp_csv_path = tmp.name
+                        df.to_csv(temp_csv_path, index=False)
+                        try:
+                            ok_load = self.model.load_csv(temp_csv_path, z_depth)
+                        finally:
+                            try:
+                                os.remove(temp_csv_path)
+                            except Exception:
+                                pass
+                    except ImportError:
+                        self.view.show_error('错误', '缺少 openpyxl 依赖，请安装后再试。')
+                        ok_load = False
+                    except Exception as e:
+                        self.view.show_error('错误', f'读取Excel失败: {file_path}\n{e}')
+                        ok_load = False
+                elif file_path.lower().endswith('.xls'):
+                    # 旧版Excel（.xls）使用xlrd引擎
+                    try:
+                        df = pd.read_excel(file_path, engine='xlrd')
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
+                            temp_csv_path = tmp.name
+                        df.to_csv(temp_csv_path, index=False)
+                        try:
+                            ok_load = self.model.load_csv(temp_csv_path, z_depth)
+                        finally:
+                            try:
+                                os.remove(temp_csv_path)
+                            except Exception:
+                                pass
+                    except ImportError:
+                        self.view.show_error('错误', '缺少 xlrd 依赖，请安装后再试。')
+                        ok_load = False
+                    except Exception as e:
+                        self.view.show_error('错误', f'读取Excel失败: {file_path}\n{e}')
+                        ok_load = False
+                else:
+                    ok_load = self.model.load_csv(file_path, z_depth)
+                
+                if ok_load:
+                    first_file_loaded = True
+                else:
+                    self.view.show_error('错误', f'加载失败: {file_path}')
             
             # 自动选择最后一个数据集并根据当前视图类型生成相应热力图
             if first_file_loaded:
                 last_index = len(self.model.data_sets) - 1
                 if last_index >= 0:
-                    self._apply_import_initial_logic(last_index)
                     self._apply_import_initial_logic(last_index)
         except Exception as e:
             self.handle_exception(e, "加载CSV文件")
@@ -143,11 +192,11 @@ class HeatmapController(BaseController):
             file_paths: 拖拽的文件路径列表
         """
         try:
-            # 过滤出CSV文件
-            csv_files = [path for path in file_paths if path.lower().endswith('.csv')]
+            # 过滤出CSV/Excel文件
+            csv_files = [path for path in file_paths if path.lower().endswith(('.csv', '.xlsx', '.xls'))]
             
             if not csv_files:
-                self.view.show_error('错误', '请拖拽CSV文件')
+                self.view.show_error('错误', '请拖拽CSV或Excel文件')
                 return
             
             first_file_loaded = False
@@ -155,14 +204,55 @@ class HeatmapController(BaseController):
                 # 弹出Z轴深度设置对话框
                 z_depth, ok = self.view.show_z_depth_dialog()
                 
-                if ok:
-                    if self.model.load_csv(file_path, z_depth):
-                        first_file_loaded = True
-                    else:
-                        self.view.show_error('错误', f'加载失败: {file_path}')
-                else:
-                    # 用户取消了Z轴深度设置，停止处理后续文件
+                if not ok:
                     break
+                
+                ok_load = False
+                if file_path.lower().endswith('.xlsx'):
+                    try:
+                        df = pd.read_excel(file_path, engine='openpyxl')
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
+                            temp_csv_path = tmp.name
+                        df.to_csv(temp_csv_path, index=False)
+                        try:
+                            ok_load = self.model.load_csv(temp_csv_path, z_depth)
+                        finally:
+                            try:
+                                os.remove(temp_csv_path)
+                            except Exception:
+                                pass
+                    except ImportError:
+                        self.view.show_error('错误', '缺少 openpyxl 依赖，请安装后再试。')
+                        ok_load = False
+                    except Exception as e:
+                        self.view.show_error('错误', f'读取Excel失败: {file_path}\n{e}')
+                        ok_load = False
+                elif file_path.lower().endswith('.xls'):
+                    try:
+                        df = pd.read_excel(file_path, engine='xlrd')
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
+                            temp_csv_path = tmp.name
+                        df.to_csv(temp_csv_path, index=False)
+                        try:
+                            ok_load = self.model.load_csv(temp_csv_path, z_depth)
+                        finally:
+                            try:
+                                os.remove(temp_csv_path)
+                            except Exception:
+                                pass
+                    except ImportError:
+                        self.view.show_error('错误', '缺少 xlrd 依赖，请安装后再试。')
+                        ok_load = False
+                    except Exception as e:
+                        self.view.show_error('错误', f'读取Excel失败: {file_path}\n{e}')
+                        ok_load = False
+                else:
+                    ok_load = self.model.load_csv(file_path, z_depth)
+                
+                if ok_load:
+                    first_file_loaded = True
+                else:
+                    self.view.show_error('错误', f'加载失败: {file_path}')
             
             # 自动选择最后一个数据集并根据当前视图类型生成相应热力图
             if first_file_loaded:
