@@ -573,6 +573,58 @@ class HeatmapModel(BaseModel):
             # 最后的保底方案：返回全零数组
             return np.zeros_like(xi_grid)
         
+    def _standardize_xyz_value_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """将输入DataFrame中代表X、Y、Value(或Stress)的列标准化为['X','Y','Value']。
+        
+        规则：
+        - 不区分大小写，自动忽略空格、下划线、连字符
+        - 优先精确匹配列名：x, y, value, stress
+        - 若精确匹配失败，x/y支持以 x/y 开头的模糊匹配（如 "X(um)"）
+        - value 列支持包含 "value" 或 "stress" 的模糊匹配
+        - 仅保留并返回三列，其他列忽略
+        """
+        # 归一化列名，建立 映射：规范化后名称 -> 原始名称
+        norm_map = {}
+        for c in df.columns:
+            key = str(c).strip().lower()
+            key = key.replace(' ', '').replace('\t', '').replace('-', '').replace('_', '')
+            norm_map[key] = c
+        
+        def find_exact(candidates):
+            for cand in candidates:
+                if cand in norm_map:
+                    return norm_map[cand]
+            return None
+        
+        def find_startswith(prefixes):
+            for k, orig in norm_map.items():
+                for p in prefixes:
+                    if k.startswith(p):
+                        return orig
+            return None
+        
+        # 先精确匹配
+        x_col = find_exact({'x'}) or find_startswith({'x'})
+        y_col = find_exact({'y'}) or find_startswith({'y'})
+        v_col = find_exact({'value', 'stress'})
+        if v_col is None:
+            # 再模糊包含匹配
+            for k, orig in norm_map.items():
+                if ('value' in k) or ('stress' in k):
+                    v_col = orig
+                    break
+        
+        if x_col is None or y_col is None or v_col is None:
+            raise ValueError(f"无法识别列名，需包含 x, y, value(或stress)，实际列: {list(df.columns)}")
+        
+        std = df[[x_col, y_col, v_col]].copy()
+        std.columns = ['X', 'Y', 'Value']
+        
+        # 转换为数值类型
+        for col in ['X', 'Y', 'Value']:
+            std[col] = pd.to_numeric(std[col], errors='coerce')
+        return std
+        
     def load_csv(self, file_path: str, z_depth: float = 0.0) -> bool:
         """加载CSV文件 - 增强版本，包含性能监控和错误处理
         
@@ -629,18 +681,19 @@ class HeatmapModel(BaseModel):
                     self.notify_observers('load_error', error_msg)
                     return False
             
-            # 验证数据格式
-            required_columns = ['X', 'Y', 'Value']
-            missing_columns = [col for col in required_columns if col not in data.columns]
-            if missing_columns:
-                error_msg = f"CSV文件缺少必需的列: {missing_columns}"
-                self._log_error(error_msg)
+            # 标准化列：自动抓取 x, y, value(或stress)，忽略大小写与分隔符
+            try:
+                data = self._standardize_xyz_value_columns(data)
+            except Exception as col_err:
+                error_msg = f"列解析失败: {file_name}，需要包含 x, y, value(或stress) 列。实际列: {list(data.columns)}"
+                self._log_error(error_msg, col_err)
                 self.notify_observers('load_error', error_msg)
                 return False
             
             # 数据质量检查
             original_count = len(data)
             
+            required_columns = ['X', 'Y', 'Value']
             # 移除包含NaN值的行
             data_clean = data.dropna(subset=required_columns)
             if len(data_clean) < original_count:
