@@ -1355,7 +1355,8 @@ class HeatmapView(BaseView):
             for idx, img in enumerate(images):
                 # 创建容器
                 card = QFrame()
-                card.setStyleSheet("QFrame { background: white; border: 1px solid #e74c3c; border-radius: 6px; }")
+                card.setObjectName("previewCard")
+                card.setStyleSheet("#previewCard { background: white; border: 1px solid #e0e0e0; border-radius: 8px; }")
                 v = QVBoxLayout(card)
                 v.setContentsMargins(6, 6, 6, 6)
                 v.setSpacing(6)
@@ -1380,7 +1381,9 @@ class HeatmapView(BaseView):
                 scaled = pix.scaledToWidth(thumb_width, Qt.SmoothTransformation)
                 pic = QLabel()
                 pic.setAlignment(Qt.AlignCenter)
+                pic.setFrameStyle(QFrame.NoFrame)
                 pic.setPixmap(scaled)
+                pic.setStyleSheet("border: none; background: transparent;")
                 v.addWidget(pic)
 
                 # 标签
@@ -1389,7 +1392,8 @@ class HeatmapView(BaseView):
                 else:
                     text = QLabel(f"Layer {idx+1}")
                 text.setAlignment(Qt.AlignCenter)
-                text.setStyleSheet("color: #2c3e50; font-size: 11px;")
+                text.setFrameStyle(QFrame.NoFrame)
+                text.setStyleSheet("color: #2c3e50; font-size: 11px; border: none; background: transparent;")
                 v.addWidget(text)
 
                 self.preview_layout.insertWidget(self.preview_layout.count() - 1, card)
