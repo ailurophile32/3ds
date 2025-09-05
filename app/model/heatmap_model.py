@@ -244,36 +244,27 @@ class HeatmapModel(BaseModel):
         """
         if self.current_colormap == 'coolwarm':
             if vmin < 0 and vmax > 0:
-                # 数据跨越0值，创建动态蓝白红色标
-                # 计算0值在数据范围中的相对位置
+                # 与2D一致：跨越0时使用线性蓝-白-红，0对应纯白
                 zero_position = -vmin / (vmax - vmin)
-                
-                # 确保位置在有效范围内
                 zero_position = max(0.01, min(0.99, zero_position))
-                
-                # 创建动态色标，0值位置对应白色
                 colorscale = [
-                    [0.0, '#0066CC'],           # 深蓝
-                    [zero_position * 0.5, '#4D9FDB'],  # 浅蓝（0值位置的一半）
-                    [zero_position, '#FFFFFF'],  # 纯白（0值）
-                    [zero_position + (1 - zero_position) * 0.5, '#DB4D4D'],  # 浅红
-                    [1.0, '#CC0000']            # 深红
+                    [0.0, '#0066CC'],          # 深蓝
+                    [zero_position, '#FFFFFF'], # 纯白（0值）
+                    [1.0, '#CC0000']           # 深红
                 ]
                 return colorscale, vmin, vmax
             elif vmin >= 0:
-                # 全为正值，白色到红色
+                # 与2D一致：全正值，白->红线性渐变
                 colorscale = [
-                    [0.0, '#FFFFFF'],  # 纯白
-                    [0.5, '#FF6666'],  # 浅红
-                    [1.0, '#CC0000']   # 深红
+                    [0.0, '#FFFFFF'],
+                    [1.0, '#CC0000']
                 ]
                 return colorscale, vmin, vmax
             else:
-                # 全为负值，蓝色到白色
+                # 与2D一致：全负值，蓝->白线性渐变
                 colorscale = [
-                    [0.0, '#0066CC'],  # 深蓝
-                    [0.5, '#6699FF'],  # 浅蓝
-                    [1.0, '#FFFFFF']   # 纯白
+                    [0.0, '#0066CC'],
+                    [1.0, '#FFFFFF']
                 ]
                 return colorscale, vmin, vmax
         else:
@@ -1413,6 +1404,54 @@ class HeatmapModel(BaseModel):
                 self._global_vmin, self._global_vmax
             )
             
+            # 计算色标刻度：根据范围动态选择“整十/整百/整千”等步长 + 端点(min/max)，并保证0在范围内时作为刻度
+            span = float(norm_vmax - norm_vmin)
+            if not np.isfinite(span) or span <= 0:
+                step = 100.0
+            else:
+                # 选择10的幂次步长，保证刻度大致在5~20个之间（保持清晰）
+                k = int(np.floor(np.log10(span)))
+                step = 10.0 ** k
+                while span / step < 5 and step >= 1.0:
+                    step /= 10.0
+                    if step < 1.0:
+                        step = 1.0
+                        break
+                while span / step > 20:
+                    step *= 10.0
+
+            start_major = np.ceil(norm_vmin / step) * step
+            end_major = np.floor(norm_vmax / step) * step
+            major_ticks = np.arange(start_major, end_major + 0.5 * step, step).tolist() if start_major <= end_major else []
+
+            # 过滤与端点过近的整十/百/千刻度，避免文字重叠；0若在范围内必须保留
+            include_zero = (norm_vmin <= 0.0 <= norm_vmax)
+            threshold = step * 0.45  # 与端点小于45%的间距就去掉
+            filtered_major_ticks = []
+            for v in major_ticks:
+                if include_zero and abs(v) < 1e-9:
+                    filtered_major_ticks.append(0.0)
+                    continue
+                if (abs(v - norm_vmin) <= threshold) or (abs(v - norm_vmax) <= threshold):
+                    continue
+                filtered_major_ticks.append(v)
+
+            # 合并端点 + 过滤后的刻度，去重并排序
+            tmp_ticks = sorted([norm_vmin] + filtered_major_ticks + [norm_vmax])
+            tick_vals = []
+            for v in tmp_ticks:
+                if not tick_vals or abs(v - tick_vals[-1]) > 1e-6:
+                    tick_vals.append(v)
+            # 文本标签：端点显示min/max，中间整十/百/千显示对应数值
+            tick_text = []
+            for v in tick_vals:
+                if abs(v - norm_vmin) <= 1e-6:
+                    tick_text.append(f"min: {norm_vmin:.0f}")
+                elif abs(v - norm_vmax) <= 1e-6:
+                    tick_text.append(f"max: {norm_vmax:.0f}")
+                else:
+                    tick_text.append(f"{v:.0f}")
+            
             # 为每个数据集创建方格地毯图层
             for dataset_index, (data, z_depth, file_name) in enumerate(self.data_sets):
                 try:
@@ -1500,6 +1539,10 @@ class HeatmapModel(BaseModel):
                                  y=0.5,    # 垂直居中
                                  yanchor="middle",
                                  x=1.02,
+                                 ticks="outside",
+                                 tickmode="array",
+                                 tickvals=tick_vals,
+                                 ticktext=tick_text,
                                  tickfont=dict(size=10, family="sans-serif")
                              ) if dataset_index == 0 else None,
                              name=f"{file_name} (Z={z_depth}μm)",
@@ -1606,7 +1649,7 @@ class HeatmapModel(BaseModel):
             self.plotly_fig.update_layout(
                 scene=scene_config,
                 title_text="SiC应力3D切片",
-                margin=dict(l=0, r=0, t=50, b=0),
+                margin=dict(l=0, r=60, t=50, b=0),
                 legend=dict(
                     yanchor="top",
                     y=0.99,
@@ -1615,29 +1658,8 @@ class HeatmapModel(BaseModel):
                     bgcolor="rgba(255,255,255,0.5)"
                 ),
                 template="plotly_white",
-                # 在色标上下位置添加max/min文本标签
-                annotations=[
-                    # 最大值标签 - 放置在色标上方
-                    dict(
-                        x=1.02, y=0.6,
-                        xref='paper', yref='paper',
-                        text=f'max: {first_norm_vmax:.0f}',
-                        showarrow=False,
-                        font=dict(size=12, color='black', family='sans-serif', weight='bold'),
-                        xanchor='left',
-                        yanchor='middle'
-                    ),
-                    # 最小值标签 - 放置在色标下方
-                    dict(
-                        x=1.02, y=0.18,
-                        xref='paper', yref='paper', 
-                        text=f'min: {first_norm_vmin:.0f}',
-                        showarrow=False,
-                        font=dict(size=12, color='black', family='sans-serif', weight='bold'),
-                        xanchor='left',
-                        yanchor='middle'
-                    )
-                ]
+                # 改为在色标上直接标注min/max，避免注释与色标层级冲突
+                annotations=[]
             )
             
             # 强制更新colorbar范围以确保显示正确的最大最小值
