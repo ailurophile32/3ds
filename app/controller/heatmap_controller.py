@@ -7,10 +7,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QProgressDialog, QFileDialog
 from typing import Any
 
-# 新增：用于Excel读取与临时文件
-import pandas as pd
-import tempfile
-import os
 from app.controller.base_controller import BaseController
 from app.model.heatmap_model import HeatmapModel
 from app.utils.widgets import PerformanceSettingsDialog
@@ -128,49 +124,7 @@ class HeatmapController(BaseController):
                 if not ok:
                     break
                 
-                ok_load = False
-                if file_path.lower().endswith('.xlsx'):
-                    # 将Excel读取后保存为临时CSV，再走现有模型流程，避免重复校验逻辑
-                    try:
-                        df = pd.read_excel(file_path, engine='openpyxl')
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                            temp_csv_path = tmp.name
-                        df.to_csv(temp_csv_path, index=False)
-                        try:
-                            ok_load = self.model.load_csv(temp_csv_path, z_depth)
-                        finally:
-                            try:
-                                os.remove(temp_csv_path)
-                            except Exception:
-                                pass
-                    except ImportError:
-                        self.view.show_error('错误', '缺少 openpyxl 依赖，请安装后再试。')
-                        ok_load = False
-                    except Exception as e:
-                        self.view.show_error('错误', f'读取Excel失败: {file_path}\n{e}')
-                        ok_load = False
-                elif file_path.lower().endswith('.xls'):
-                    # 旧版Excel（.xls）使用xlrd引擎
-                    try:
-                        df = pd.read_excel(file_path, engine='xlrd')
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                            temp_csv_path = tmp.name
-                        df.to_csv(temp_csv_path, index=False)
-                        try:
-                            ok_load = self.model.load_csv(temp_csv_path, z_depth)
-                        finally:
-                            try:
-                                os.remove(temp_csv_path)
-                            except Exception:
-                                pass
-                    except ImportError:
-                        self.view.show_error('错误', '缺少 xlrd 依赖，请安装后再试。')
-                        ok_load = False
-                    except Exception as e:
-                        self.view.show_error('错误', f'读取Excel失败: {file_path}\n{e}')
-                        ok_load = False
-                else:
-                    ok_load = self.model.load_csv(file_path, z_depth)
+                ok_load = self.model.load_file(file_path, z_depth)
                 
                 if ok_load:
                     first_file_loaded = True
@@ -207,47 +161,7 @@ class HeatmapController(BaseController):
                 if not ok:
                     break
                 
-                ok_load = False
-                if file_path.lower().endswith('.xlsx'):
-                    try:
-                        df = pd.read_excel(file_path, engine='openpyxl')
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                            temp_csv_path = tmp.name
-                        df.to_csv(temp_csv_path, index=False)
-                        try:
-                            ok_load = self.model.load_csv(temp_csv_path, z_depth)
-                        finally:
-                            try:
-                                os.remove(temp_csv_path)
-                            except Exception:
-                                pass
-                    except ImportError:
-                        self.view.show_error('错误', '缺少 openpyxl 依赖，请安装后再试。')
-                        ok_load = False
-                    except Exception as e:
-                        self.view.show_error('错误', f'读取Excel失败: {file_path}\n{e}')
-                        ok_load = False
-                elif file_path.lower().endswith('.xls'):
-                    try:
-                        df = pd.read_excel(file_path, engine='xlrd')
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.csv') as tmp:
-                            temp_csv_path = tmp.name
-                        df.to_csv(temp_csv_path, index=False)
-                        try:
-                            ok_load = self.model.load_csv(temp_csv_path, z_depth)
-                        finally:
-                            try:
-                                os.remove(temp_csv_path)
-                            except Exception:
-                                pass
-                    except ImportError:
-                        self.view.show_error('错误', '缺少 xlrd 依赖，请安装后再试。')
-                        ok_load = False
-                    except Exception as e:
-                        self.view.show_error('错误', f'读取Excel失败: {file_path}\n{e}')
-                        ok_load = False
-                else:
-                    ok_load = self.model.load_csv(file_path, z_depth)
+                ok_load = self.model.load_file(file_path, z_depth)
                 
                 if ok_load:
                     first_file_loaded = True

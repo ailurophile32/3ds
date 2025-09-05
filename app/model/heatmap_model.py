@@ -681,81 +681,16 @@ class HeatmapModel(BaseModel):
                     self.notify_observers('load_error', error_msg)
                     return False
             
-            # 标准化列：自动抓取 x, y, value(或stress)，忽略大小写与分隔符
-            try:
-                data = self._standardize_xyz_value_columns(data)
-            except Exception as col_err:
-                error_msg = f"列解析失败: {file_name}，需要包含 x, y, value(或stress) 列。实际列: {list(data.columns)}"
-                self._log_error(error_msg, col_err)
-                self.notify_observers('load_error', error_msg)
-                return False
-            
-            # 数据质量检查
-            original_count = len(data)
-            
-            required_columns = ['X', 'Y', 'Value']
-            # 移除包含NaN值的行
-            data_clean = data.dropna(subset=required_columns)
-            if len(data_clean) < original_count:
-                removed_count = original_count - len(data_clean)
-                self._log_operation(f"移除了 {removed_count} 行包含NaN值的数据", 'WARNING')
-            
-            # 检查是否还有有效数据
-            if len(data_clean) == 0:
-                error_msg = f"文件 {file_name} 没有有效的数据行"
-                self._log_error(error_msg)
-                self.notify_observers('load_error', error_msg)
-                return False
-            
-            # 检查数据范围的合理性
-            try:
-                x_range = data_clean['X'].max() - data_clean['X'].min()
-                y_range = data_clean['Y'].max() - data_clean['Y'].min()
-                value_range = data_clean['Value'].max() - data_clean['Value'].min()
-                
-                if x_range <= 0 or y_range <= 0:
-                    self._log_operation(f"数据范围异常: X范围={x_range}, Y范围={y_range}", 'WARNING')
-                
-                if value_range <= 0:
-                    self._log_operation(f"应力值范围异常: {value_range}", 'WARNING')
-                
-            except Exception as range_error:
-                self._log_error(f"数据范围检查失败: {range_error}", range_error)
-            
-            # 记录数据统计信息
-            data_stats = {
-                'total_points': len(data_clean),
-                'x_range': (float(data_clean['X'].min()), float(data_clean['X'].max())),
-                'y_range': (float(data_clean['Y'].min()), float(data_clean['Y'].max())),
-                'value_range': (float(data_clean['Value'].min()), float(data_clean['Value'].max())),
-                'file_size_mb': file_size / 1024 / 1024,
-                'encoding': encoding_used
-            }
-            
-            print(f"成功加载数据: {len(data_clean)} 个数据点")
-            print(f"X范围: {data_stats['x_range'][0]:.1f} - {data_stats['x_range'][1]:.1f} μm")
-            print(f"Y范围: {data_stats['y_range'][0]:.1f} - {data_stats['y_range'][1]:.1f} μm")
-            print(f"应力值范围: {data_stats['value_range'][0]:.2f} - {data_stats['value_range'][1]:.2f} MPa")
-            
-            # 将数据集添加到列表
-            self.data_sets.append((data_clean, z_depth, file_name))
-            
-            # 记录性能信息
-            load_duration = time.time() - start_time
-            self._log_performance(f"CSV加载 - {file_name}", load_duration, len(data_clean))
-            
-            # 通知观察者数据集已添加
-            self.notify_observers('dataset_added', {
-                'index': len(self.data_sets) - 1,
-                'file_name': file_name,
-                'z_depth': z_depth,
-                'data_count': len(data_clean),
-                'data_stats': data_stats,
-                'load_duration': load_duration
-            })
-            
-            self._log_operation(f"CSV文件加载完成: {file_name}, 耗时: {load_duration:.3f}s")
-            return True
+            # 交由统一处理入口，避免重复逻辑
+            return self._process_loaded_dataframe(
+                data,
+                file_name,
+                z_depth,
+                file_size=file_size,
+                encoding_used=encoding_used,
+                source_label="CSV",
+                start_time=start_time
+            )
             
         except pd.errors.EmptyDataError:
             error_msg = f"CSV文件为空: {file_name}"
@@ -778,6 +713,171 @@ class HeatmapModel(BaseModel):
             self.notify_observers('load_error', error_msg)
             return False
     
+    def _process_loaded_dataframe(self, df: pd.DataFrame, file_name: str, z_depth: float = 0.0,
+                                   file_size: int | None = None, encoding_used: str | None = None,
+                                   source_label: str = "数据", start_time: float | None = None) -> bool:
+        """统一处理已读取的 DataFrame：列标准化、清洗、统计、入库与事件通知。
+        KISS/DRY：集中数据处理，供 CSV/Excel/自定义DF 复用。
+        """
+        import time
+        if start_time is None:
+            start_time = time.time()
+        try:
+            # 标准化列
+            try:
+                data = self._standardize_xyz_value_columns(df)
+            except Exception as col_err:
+                error_msg = f"列解析失败: {file_name}，需要包含 x, y, value(或stress) 列。实际列: {list(df.columns)}"
+                self._log_error(error_msg, col_err)
+                self.notify_observers('load_error', error_msg)
+                return False
+            
+            # 数据质量检查与清洗
+            original_count = len(data)
+            required_columns = ['X', 'Y', 'Value']
+            data_clean = data.dropna(subset=required_columns)
+            if len(data_clean) < original_count:
+                removed_count = original_count - len(data_clean)
+                self._log_operation(f"移除了 {removed_count} 行包含NaN值的数据", 'WARNING')
+            
+            if len(data_clean) == 0:
+                error_msg = f"文件 {file_name} 没有有效的数据行"
+                self._log_error(error_msg)
+                self.notify_observers('load_error', error_msg)
+                return False
+            
+            # 范围检查
+            try:
+                x_range = data_clean['X'].max() - data_clean['X'].min()
+                y_range = data_clean['Y'].max() - data_clean['Y'].min()
+                value_range = data_clean['Value'].max() - data_clean['Value'].min()
+                if x_range <= 0 or y_range <= 0:
+                    self._log_operation(f"数据范围异常: X范围={x_range}, Y范围={y_range}", 'WARNING')
+                if value_range <= 0:
+                    self._log_operation(f"应力值范围异常: {value_range}", 'WARNING')
+            except Exception as range_error:
+                self._log_error(f"数据范围检查失败: {range_error}", range_error)
+            
+            # 统计与输出
+            data_stats = {
+                'total_points': len(data_clean),
+                'x_range': (float(data_clean['X'].min()), float(data_clean['X'].max())),
+                'y_range': (float(data_clean['Y'].min()), float(data_clean['Y'].max())),
+                'value_range': (float(data_clean['Value'].min()), float(data_clean['Value'].max())),
+                'file_size_mb': (file_size / 1024 / 1024) if file_size is not None else None,
+                'encoding': encoding_used
+            }
+            print(f"成功加载数据: {len(data_clean)} 个数据点")
+            print(f"X范围: {data_stats['x_range'][0]:.1f} - {data_stats['x_range'][1]:.1f} μm")
+            print(f"Y范围: {data_stats['y_range'][0]:.1f} - {data_stats['y_range'][1]:.1f} μm")
+            print(f"应力值范围: {data_stats['value_range'][0]:.2f} - {data_stats['value_range'][1]:.2f} MPa")
+            
+            # 入库
+            self.data_sets.append((data_clean, z_depth, file_name))
+            load_duration = time.time() - start_time
+            self._log_performance(f"{source_label}加载 - {file_name}", load_duration, len(data_clean))
+            
+            # 通知视图
+            self.notify_observers('dataset_added', {
+                'index': len(self.data_sets) - 1,
+                'file_name': file_name,
+                'z_depth': z_depth,
+                'data_count': len(data_clean),
+                'data_stats': data_stats,
+                'load_duration': load_duration
+            })
+            self._log_operation(f"{source_label}文件加载完成: {file_name}, 耗时: {load_duration:.3f}s")
+            return True
+        except Exception as e:
+            error_msg = f"处理数据失败: {file_name}, 错误: {str(e)}"
+            self._log_error(error_msg, e)
+            self.notify_observers('load_error', error_msg)
+            return False
+
+    def load_excel(self, file_path: str, z_depth: float = 0.0) -> bool:
+        """加载Excel文件（.xlsx/.xls），避免中转CSV，直接进入统一处理流程。"""
+        import time
+        start_time = time.time()
+        file_name = Path(file_path).name
+        try:
+            self._log_operation(f"开始加载Excel文件: {file_name}")
+            # 文件存在与大小
+            p = Path(file_path)
+            if not p.exists():
+                error_msg = f"文件不存在: {file_path}"
+                self._log_error(error_msg)
+                self.notify_observers('load_error', error_msg)
+                return False
+            file_size = p.stat().st_size
+            if file_size > 100 * 1024 * 1024:
+                self._log_operation(f"大文件警告: {file_name} ({file_size/1024/1024:.1f}MB)", 'WARNING')
+            # 读取
+            lower = file_path.lower()
+            try:
+                if lower.endswith('.xlsx'):
+                    df = pd.read_excel(file_path, engine='openpyxl')
+                elif lower.endswith('.xls'):
+                    df = pd.read_excel(file_path, engine='xlrd')
+                else:
+                    error_msg = f"不支持的Excel文件类型: {file_name}"
+                    self._log_error(error_msg)
+                    self.notify_observers('load_error', error_msg)
+                    return False
+            except ImportError as ie:
+                # 依赖缺失
+                msg = '缺少 openpyxl 依赖，请安装后再试。' if lower.endswith('.xlsx') else '缺少 xlrd 依赖，请安装后再试。'
+                self._log_error(msg, ie)
+                self.notify_observers('load_error', msg)
+                return False
+            except Exception as e:
+                error_msg = f"读取Excel失败: {file_name}, 错误: {str(e)}"
+                self._log_error(error_msg, e)
+                self.notify_observers('load_error', error_msg)
+                return False
+            # 统一处理
+            return self._process_loaded_dataframe(df, file_name, z_depth, file_size=file_size, encoding_used=None,
+                                                  source_label="Excel", start_time=start_time)
+        except MemoryError:
+            error_msg = f"内存不足，无法加载大文件: {file_name}"
+            self._log_error(error_msg)
+            self.notify_observers('load_error', error_msg)
+            return False
+        except Exception as e:
+            error_msg = f"加载Excel文件失败: {file_name}, 错误: {str(e)}"
+            self._log_error(error_msg, e)
+            self.notify_observers('load_error', error_msg)
+            return False
+
+    def load_file(self, file_path: str, z_depth: float = 0.0) -> bool:
+        """统一入口：根据扩展名分发到 CSV 或 Excel 加载。"""
+        lower = file_path.lower()
+        if lower.endswith('.csv'):
+            return self.load_csv(file_path, z_depth)
+        elif lower.endswith('.xlsx') or lower.endswith('.xls'):
+            return self.load_excel(file_path, z_depth)
+        else:
+            file_name = Path(file_path).name
+            error_msg = f"不支持的文件类型: {file_name}"
+            self._log_error(error_msg)
+            self.notify_observers('load_error', error_msg)
+            return False
+
+    def load_dataframe(self, df: pd.DataFrame, file_name: str = "DataFrame", z_depth: float = 0.0) -> bool:
+        """直接加载已存在的 DataFrame，作为统一入口之一。"""
+        import time
+        start_time = time.time()
+        try:
+            return self._process_loaded_dataframe(
+                df, file_name, z_depth,
+                file_size=None, encoding_used=None,
+                source_label="DataFrame", start_time=start_time
+            )
+        except Exception as e:
+            error_msg = f"加载DataFrame失败: {file_name}, 错误: {str(e)}"
+            self._log_error(error_msg, e)
+            self.notify_observers('load_error', error_msg)
+            return False
+
     def update_z_depth(self, index: int, z_depth: float):
         """更新特定数据集的Z轴深度值
         
