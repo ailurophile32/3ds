@@ -17,4 +17,7 @@ sample/
 .vscode/
 .kiro/
 
+
+doc/
+
 CLAUDE.md

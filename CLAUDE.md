@@ -105,4 +105,4 @@ The application follows a strict MVC pattern:
 - Color mapping system supports both automatic and manual range setting
 - The MVC pattern is strictly enforced with event-driven communication between layers
 
-始终用中文回答
+- 始终用中文回答
