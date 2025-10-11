@@ -9,6 +9,8 @@ from typing import Any
 
 from app.controller.base_controller import BaseController
 from app.model.heatmap_model import HeatmapModel
+from app.model.statistics_model import StatisticsModel
+from app.controller.statistics_controller import StatisticsController
 from app.utils.widgets import PerformanceSettingsDialog
 from app.view.heatmap_view import HeatmapView
 
@@ -24,6 +26,14 @@ class HeatmapController(BaseController):
             view: 热力图视图
         """
         super().__init__(model, view)
+        
+        # 初始化统计分析模块
+        self.statistics_model = StatisticsModel()
+        self.statistics_controller = StatisticsController(
+            self.statistics_model, 
+            self.view.statistics_view
+        )
+        
         self.init_callbacks()
     
     def on_model_changed(self, event_type: str, data: Any) -> None:
@@ -41,6 +51,9 @@ class HeatmapController(BaseController):
             # 更新按钮状态
             self.view.generate_3d_button.setEnabled(self.model.get_dataset_count() > 0)
             
+            # 同步更新统计分析模块
+            self.statistics_controller.set_data_sets(self.model.data_sets)
+            
             # 实现新的数据加载默认行为逻辑
             self.on_data_loaded()
             
@@ -55,6 +68,9 @@ class HeatmapController(BaseController):
             
             # 更新按钮状态
             self.view.generate_3d_button.setEnabled(self.model.get_dataset_count() > 0)
+            
+            # 同步更新统计分析模块
+            self.statistics_controller.set_data_sets(self.model.data_sets)
             
             # 更新数据范围显示
             self.update_data_range_display()

@@ -356,10 +356,21 @@ class HeatmapView(BaseView):
         self.status_label.setAlignment(Qt.AlignCenter)
         self.left_layout.addWidget(self.status_label)
 
-        # 右侧可视化区域
+        # 右侧可视化区域 - 使用标签页系统
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
         h_splitter.addWidget(right_panel, 3)  # 右侧面板占更多空间
+
+        # 创建标签页控件
+        from PySide6.QtWidgets import QTabWidget
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setTabPosition(QTabWidget.North)
+        right_layout.addWidget(self.tab_widget)
+
+        # === 标签页1: 可视化 ===
+        visualization_tab = QWidget()
+        visualization_tab_layout = QVBoxLayout(visualization_tab)
+        visualization_tab_layout.setContentsMargins(0, 0, 0, 0)
 
         # 可视化+预览容器
         visual_container = QWidget()
@@ -388,8 +399,31 @@ class HeatmapView(BaseView):
         self.preview_scroll_area.hide()  # 初始隐藏，仅在3D模式下显示
 
         visual_container_layout.addWidget(self.preview_scroll_area)
+        visualization_tab_layout.addWidget(visual_container, 1)
+        self.tab_widget.addTab(visualization_tab, "可视化")
 
-        right_layout.addWidget(visual_container, 1)
+        # === 标签页2: 统计分析 ===
+        from app.view.statistics_view import StatisticsView
+        self.statistics_view = StatisticsView()
+        self.tab_widget.addTab(self.statistics_view, "统计分析")
+
+        # === 标签页3: 趋势对比 ===
+        trend_tab = QWidget()
+        trend_tab_layout = QVBoxLayout(trend_tab)
+        placeholder_label_2 = QLabel("趋势对比功能即将推出...")
+        placeholder_label_2.setAlignment(Qt.AlignCenter)
+        placeholder_label_2.setStyleSheet("color: #7f8c8d; font-size: 14px;")
+        trend_tab_layout.addWidget(placeholder_label_2)
+        self.tab_widget.addTab(trend_tab, "趋势对比")
+
+        # === 标签页4: 梯度分析 ===
+        gradient_tab = QWidget()
+        gradient_tab_layout = QVBoxLayout(gradient_tab)
+        placeholder_label_3 = QLabel("梯度分析功能即将推出...")
+        placeholder_label_3.setAlignment(Qt.AlignCenter)
+        placeholder_label_3.setStyleSheet("color: #7f8c8d; font-size: 14px;")
+        gradient_tab_layout.addWidget(placeholder_label_3)
+        self.tab_widget.addTab(gradient_tab, "梯度分析")
 
     def _on_files_dropped(self, file_paths):
         """处理拖拽文件事件"""
