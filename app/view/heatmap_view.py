@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QScrollArea,
     QDoubleSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
 )
 from matplotlib.backend_bases import MouseEvent
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -55,6 +57,9 @@ class HeatmapView(BaseView):
         self.hover_annotation = None  # 用于显示悬停信息的文本注释
         self.current_view_type = None  # '2d' 或 'plotly'
         self.current_canvas = None
+        # 逐点分析：已选点位与其在当前图上的艺术对象
+        self.analysis_points: List[Tuple[float, float]] = []
+        self._point_artists: List[Any] = []
 
         # 初始化回调函数字典
         self.callbacks.update(
@@ -76,6 +81,7 @@ class HeatmapView(BaseView):
                 "on_show_performance_settings": None,
                 "on_csv_selection_changed": None,
                 "on_flip_x_axis": None,
+                "on_point_clicked": None,
             }
         )
 
@@ -401,6 +407,29 @@ class HeatmapView(BaseView):
         visual_container_layout.addWidget(self.preview_scroll_area)
         visualization_tab_layout.addWidget(visual_container, 1)
         self.tab_widget.addTab(visualization_tab, "可视化")
+
+        # 2D 点位值列表（仅2D显示）
+        self.point_group = QGroupBox("选中点值")
+        point_layout = QVBoxLayout(self.point_group)
+        self.point_table = QTableWidget()
+        self.point_table.setColumnCount(4)
+        self.point_table.setHorizontalHeaderLabels(["X (μm)", "Y (μm)", "Z (μm)", "应力 (MPa)"])
+        self.point_table.horizontalHeader().setStretchLastSection(True)
+        self.point_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.point_table.setAlternatingRowColors(True)
+        point_layout.addWidget(self.point_table)
+        # 删除/清空按钮
+        btn_bar = QHBoxLayout()
+        self.btn_delete_selected = QPushButton("删除选中点")
+        self.btn_delete_selected.clicked.connect(self._on_delete_selected_points)
+        self.btn_clear_points = QPushButton("清空所有点")
+        self.btn_clear_points.clicked.connect(self._on_clear_all_points)
+        btn_bar.addWidget(self.btn_delete_selected)
+        btn_bar.addWidget(self.btn_clear_points)
+        btn_bar.addStretch()
+        point_layout.addLayout(btn_bar)
+        visualization_tab_layout.addWidget(self.point_group)
+        self.point_group.hide()
 
         # === 标签页2: 统计分析 ===
         from app.view.statistics_view import StatisticsView
@@ -1105,6 +1134,8 @@ class HeatmapView(BaseView):
         # 添加鼠标悬停事件处理
         if hasattr(fig, "_heatmap_data"):
             self._setup_mouse_hover_events(fig)
+            # 连接点击事件（2D点选）
+            self.current_canvas.mpl_connect("button_press_event", self._on_mouse_click)
 
         # 显示图形
         self.visualization_layout.addWidget(self.current_canvas)
@@ -1113,6 +1144,22 @@ class HeatmapView(BaseView):
         # 隐藏右侧预览栏（仅3D模式使用）
         if hasattr(self, "preview_scroll_area"):
             self.preview_scroll_area.hide()
+
+        # 回放已选点位标记
+        try:
+            axes = self.current_canvas.figure.axes
+            if axes:
+                self._draw_analysis_points(axes[0])
+        except Exception:
+            pass
+
+        # 填充点位值列表并显示
+        try:
+            if hasattr(self.current_canvas.figure, "_heatmap_data"):
+                self._refresh_point_table(self.current_canvas.figure._heatmap_data)
+            self.point_group.show()
+        except Exception:
+            pass
 
     def show_3d_figure(self, fig: Any) -> None:
         """显示3D Plotly热力图
@@ -1137,6 +1184,9 @@ class HeatmapView(BaseView):
 
         self.current_view_type = "plotly"
         self.save_button.setEnabled(True)
+        # 隐藏点位值列表（仅2D使用）
+        if hasattr(self, "point_group"):
+            self.point_group.hide()
 
     def _clear_visualization(self) -> None:
         """清除可视化区域的内容"""
@@ -1163,6 +1213,180 @@ class HeatmapView(BaseView):
             self.current_canvas.mpl_connect("motion_notify_event", self._on_mouse_move)
             # 连接鼠标离开事件
             self.current_canvas.mpl_connect("axes_leave_event", self._on_mouse_leave)
+            # 右键删除最近点
+            self.current_canvas.mpl_connect("button_press_event", self._on_right_click_delete)
+
+    def _clear_point_artists(self) -> None:
+        """清除当前画布上的点位标记对象"""
+        try:
+            for artist in getattr(self, "_point_artists", []) or []:
+                try:
+                    artist.remove()
+                except Exception:
+                    pass
+            self._point_artists = []
+            if self.current_canvas:
+                self.current_canvas.draw_idle()
+        except Exception:
+            pass
+
+    def _draw_analysis_points(self, ax) -> None:
+        """在指定坐标轴上绘制已记录的点位标记"""
+        if not self.analysis_points:
+            return
+        # 清除旧的标记
+        self._clear_point_artists()
+        try:
+            xs = [p[0] for p in self.analysis_points]
+            ys = [p[1] for p in self.analysis_points]
+            artist = ax.scatter(xs, ys, c="#e74c3c", s=50, marker="o", edgecolors="white", linewidths=1.2, zorder=6000)
+            self._point_artists.append(artist)
+            if self.current_canvas:
+                self.current_canvas.draw_idle()
+        except Exception:
+            pass
+
+    def _on_mouse_click(self, event: MouseEvent) -> None:
+        """2D图点击事件：记录点位与标记绘制，并触发回调"""
+        try:
+            # 仅处理左键单击并且在坐标轴内
+            if event.button != 1 or event.inaxes is None or not self.current_canvas:
+                return
+
+            if not hasattr(self.current_canvas.figure, "_heatmap_data"):
+                return
+
+            heatmap_data = self.current_canvas.figure._heatmap_data
+            x_center = heatmap_data["x_center"]
+            y_center = heatmap_data["y_center"]
+            radius = heatmap_data["radius"]
+
+            x_mouse, y_mouse = event.xdata, event.ydata
+            if x_mouse is None or y_mouse is None:
+                return
+
+            # 仅允许圆形有效区域内的点击
+            dist = np.sqrt((x_mouse - x_center) ** 2 + (y_mouse - y_center) ** 2)
+            if dist > radius:
+                return
+
+            # 记录并绘制
+            self.analysis_points.append((float(x_mouse), float(y_mouse)))
+            artist = event.inaxes.scatter([x_mouse], [y_mouse], c="#e74c3c", s=50, marker="o", edgecolors="white", linewidths=1.2, zorder=6000)
+            self._point_artists.append(artist)
+            self.current_canvas.draw_idle()
+
+            # 计算并追加到点位表
+            value = self._get_grid_value(heatmap_data, float(x_mouse), float(y_mouse))
+            z_depth = float(heatmap_data.get("z_depth", 0.0))
+            if value is not None and not np.isnan(value):
+                self._append_point_row(float(x_mouse), float(y_mouse), z_depth, float(value))
+
+            # 通知控制器
+            self.trigger_callback("on_point_clicked", float(x_mouse), float(y_mouse))
+            self.update_status(f"已添加分析点: ({x_mouse:.1f}, {y_mouse:.1f})")
+        except Exception as e:
+            print(f"点击事件处理错误: {e}")
+
+    def _on_right_click_delete(self, event: MouseEvent) -> None:
+        """右键在图上删除最近的一个分析点"""
+        try:
+            if event.button != 3 or event.inaxes is None or not self.current_canvas:
+                return
+            if not self.analysis_points:
+                return
+            # 找最近点
+            xm, ym = event.xdata, event.ydata
+            if xm is None or ym is None:
+                return
+            d2 = [ (x - xm) ** 2 + (y - ym) ** 2 for (x, y) in self.analysis_points ]
+            idx = int(np.argmin(d2))
+            # 删除并重绘
+            self.analysis_points.pop(idx)
+            self._clear_point_artists()
+            axes = self.current_canvas.figure.axes
+            if axes:
+                self._draw_analysis_points(axes[0])
+            # 刷新表格
+            if hasattr(self.current_canvas.figure, "_heatmap_data"):
+                self._refresh_point_table(self.current_canvas.figure._heatmap_data)
+            self.update_status("已删除最近点")
+        except Exception as e:
+            print(f"右键删除点错误: {e}")
+
+    def _on_delete_selected_points(self) -> None:
+        """从表格中删除选中的点并同步图上标记"""
+        try:
+            selected_rows = sorted({ i.row() for i in self.point_table.selectedIndexes() }, reverse=True)
+            if not selected_rows:
+                return
+            # 将表格行映射回 analysis_points 顺序
+            for row in selected_rows:
+                if 0 <= row < len(self.analysis_points):
+                    self.analysis_points.pop(row)
+            # 重绘标记
+            self._clear_point_artists()
+            if self.current_canvas and self.current_canvas.figure.axes:
+                self._draw_analysis_points(self.current_canvas.figure.axes[0])
+            # 刷新表格
+            if hasattr(self.current_canvas.figure, "_heatmap_data"):
+                self._refresh_point_table(self.current_canvas.figure._heatmap_data)
+            else:
+                self.point_table.setRowCount(0)
+            self.update_status("已删除选中点")
+        except Exception as e:
+            print(f"删除选中点错误: {e}")
+
+    def _on_clear_all_points(self) -> None:
+        """清空所有分析点"""
+        try:
+            self.analysis_points.clear()
+            self._clear_point_artists()
+            self.point_table.setRowCount(0)
+            self.update_status("已清空所有点")
+        except Exception as e:
+            print(f"清空点错误: {e}")
+
+    def _get_grid_value(self, heatmap_data: dict, x: float, y: float) -> float | None:
+        """根据鼠标坐标从插值网格中获取最近点的应力值"""
+        try:
+            xi_grid = heatmap_data["xi_grid"]
+            yi_grid = heatmap_data["yi_grid"]
+            zi = heatmap_data["zi"]
+            resolution = xi_grid.shape[0]
+            x_extent = xi_grid.max() - xi_grid.min()
+            y_extent = yi_grid.max() - yi_grid.min()
+            if x_extent == 0 or y_extent == 0:
+                return None
+            i = int((y - yi_grid.min()) / y_extent * (resolution - 1))
+            j = int((x - xi_grid.min()) / x_extent * (resolution - 1))
+            i = max(0, min(i, resolution - 1))
+            j = max(0, min(j, resolution - 1))
+            return float(zi[i, j])
+        except Exception:
+            return None
+
+    def _refresh_point_table(self, heatmap_data: dict) -> None:
+        """用当前分析点填充点位列表"""
+        try:
+            self.point_table.setRowCount(0)
+            z_depth = float(heatmap_data.get("z_depth", 0.0))
+            for (x, y) in self.analysis_points:
+                val = self._get_grid_value(heatmap_data, x, y)
+                if val is None or np.isnan(val):
+                    continue
+                self._append_point_row(x, y, z_depth, float(val))
+        except Exception:
+            pass
+
+    def _append_point_row(self, x: float, y: float, z: float, value: float) -> None:
+        """在点位表追加一行"""
+        row = self.point_table.rowCount()
+        self.point_table.insertRow(row)
+        self.point_table.setItem(row, 0, QTableWidgetItem(f"{x:.2f}"))
+        self.point_table.setItem(row, 1, QTableWidgetItem(f"{y:.2f}"))
+        self.point_table.setItem(row, 2, QTableWidgetItem(f"{z:.2f}"))
+        self.point_table.setItem(row, 3, QTableWidgetItem(f"{value:.2f}"))
 
     def _on_mouse_move(self, event: MouseEvent) -> None:
         """鼠标移动事件处理
