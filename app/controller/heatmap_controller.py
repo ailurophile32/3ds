@@ -10,7 +10,9 @@ from typing import Any
 from app.controller.base_controller import BaseController
 from app.model.heatmap_model import HeatmapModel
 from app.model.statistics_model import StatisticsModel
+from app.model.trend_model import TrendModel
 from app.controller.statistics_controller import StatisticsController
+from app.controller.trend_controller import TrendController
 from app.utils.widgets import PerformanceSettingsDialog
 from app.view.heatmap_view import HeatmapView
 
@@ -34,6 +36,13 @@ class HeatmapController(BaseController):
             self.view.statistics_view
         )
         
+        # 初始化趋势对比模块
+        self.trend_model = TrendModel()
+        self.trend_controller = TrendController(
+            self.trend_model,
+            self.view.trend_view
+        )
+        
         self.init_callbacks()
     
     def on_model_changed(self, event_type: str, data: Any) -> None:
@@ -54,6 +63,9 @@ class HeatmapController(BaseController):
             # 同步更新统计分析模块
             self.statistics_controller.set_data_sets(self.model.data_sets)
             
+            # 同步更新趋势对比模块
+            self.trend_controller.set_data_sets(self.model.data_sets)
+            
             # 实现新的数据加载默认行为逻辑
             self.on_data_loaded()
             
@@ -71,6 +83,9 @@ class HeatmapController(BaseController):
             
             # 同步更新统计分析模块
             self.statistics_controller.set_data_sets(self.model.data_sets)
+            
+            # 同步更新趋势对比模块
+            self.trend_controller.set_data_sets(self.model.data_sets)
             
             # 更新数据范围显示
             self.update_data_range_display()
