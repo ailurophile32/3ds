@@ -11,12 +11,14 @@ from PySide6.QtWidgets import QMessageBox
 
 from app.model.trend_model import TrendModel
 from app.view.trend_view import TrendView
+from app.view.difference_window import DifferenceWindow
+from app.model.heatmap_model import HeatmapModel
 
 
 class TrendController:
     """趋势对比控制器"""
     
-    def __init__(self, model: TrendModel, view: TrendView):
+    def __init__(self, model: TrendModel, view: TrendView, *, heatmap_model: HeatmapModel | None = None, parent=None):
         """初始化趋势控制器
         
         Args:
@@ -25,10 +27,13 @@ class TrendController:
         """
         self.model = model
         self.view = view
+        self._heatmap_model = heatmap_model  # 依赖倒置：仅依赖抽象接口所需部分
+        self._parent = parent
         
         # 绑定视图回调
         self.view.on_compare_layers = self.on_compare_layers
         self.view.on_refresh_trend = self.on_refresh_trend
+        self.view.on_calculate_difference = self.on_calculate_difference
     
     def set_data_sets(self, data_sets: List[Tuple]):
         """设置数据集
@@ -113,6 +118,27 @@ class TrendController:
         except Exception as e:
             print(f"趋势分析错误: {e}")
             QMessageBox.warning(self.view, "错误", f"趋势分析失败: {str(e)}")
+
+    def on_calculate_difference(self, minuend_index: int, subtrahend_index: int):
+        """计算两层差分并在新窗口显示"""
+        try:
+            if self._heatmap_model is None:
+                QMessageBox.warning(self.view, "错误", "模型未就绪，无法计算差分")
+                return
+            xi, yi, diff = self._heatmap_model.calculate_difference_map(minuend_index, subtrahend_index)
+            # 打开差分窗口
+            win = DifferenceWindow(
+                parent=self.view,
+                xi_grid=xi,
+                yi_grid=yi,
+                diff_values=diff,
+                title="差分云图 (被减数 - 减数)"
+            )
+            win.show()
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(self.view, "错误", f"计算差分失败: {str(e)}")
     
     def _generate_trend_charts(self, trend_data: dict):
         """生成趋势图表

@@ -10,7 +10,8 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QGroupBox, QPushButton, QScrollArea,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
-    QListWidget, QAbstractItemView, QListWidgetItem, QSizePolicy, QLayout
+    QListWidget, QAbstractItemView, QListWidgetItem, QSizePolicy, QLayout,
+    QComboBox
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -31,6 +32,7 @@ class TrendView(QWidget):
         # 回调函数
         self.on_compare_layers = None  # 现在传递多个层索引的列表
         self.on_refresh_trend = None
+        self.on_calculate_difference = None
     
     def init_ui(self):
         """初始化用户界面"""
@@ -124,6 +126,27 @@ class TrendView(QWidget):
         layer_selection_layout.addLayout(action_bar)
 
         self.content_layout.addWidget(self.layer_selection_group)
+
+        # ------- 差分云图控制区（位于选择分组下方） -------
+        self.diff_group = QGroupBox("差分云图")
+        self.diff_group.setFlat(True)
+        diff_layout = QHBoxLayout(self.diff_group)
+        diff_layout.setContentsMargins(8, 8, 8, 8)
+
+        self.diff_minuend_combo = QComboBox()
+        self.diff_subtrahend_combo = QComboBox()
+        self.diff_button = QPushButton("计算差分")
+        self.diff_button.setEnabled(False)
+        self.diff_button.clicked.connect(self._on_calculate_difference_clicked)
+
+        diff_layout.addWidget(QLabel("被减数:"))
+        diff_layout.addWidget(self.diff_minuend_combo)
+        diff_layout.addWidget(QLabel("减数:"))
+        diff_layout.addWidget(self.diff_subtrahend_combo)
+        diff_layout.addStretch()
+        diff_layout.addWidget(self.diff_button)
+
+        self.content_layout.addWidget(self.diff_group)
         
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
@@ -142,16 +165,21 @@ class TrendView(QWidget):
             self._checked_indices = set()
         self._refresh_layer_items()
         self._update_compare_button_state()
+        # 同步差分选择器
+        self._populate_diff_controls()
     
     def clear_content(self):
         """清除所有内容"""
-        # 保留底部的“选择对比层”分组，只清除其他内容
+        # 保留“选择对比层”和“差分云图”分组，只清除其他内容
         for i in reversed(range(self.content_layout.count())):
             item = self.content_layout.itemAt(i)
             widget = item.widget()
-            if widget and (not hasattr(self, 'layer_selection_group') or widget is not self.layer_selection_group):
-                widget.setParent(None)
-                widget.deleteLater()
+            if widget:
+                keep_layer_selector = hasattr(self, 'layer_selection_group') and widget is self.layer_selection_group
+                keep_diff_group = hasattr(self, 'diff_group') and widget is self.diff_group
+                if not keep_layer_selector and not keep_diff_group:
+                    widget.setParent(None)
+                    widget.deleteLater()
         
         # 重新添加占位标签（放在选择分组之前）
         self.placeholder_label = QLabel("请加载多层数据以查看趋势对比分析")
@@ -181,6 +209,10 @@ class TrendView(QWidget):
                 if widget:
                     widget.setParent(None)
                     widget.deleteLater()
+        # 重新确保差分分组存在于底部
+        if hasattr(self, 'diff_group') and self.diff_group:
+            if self.content_layout.indexOf(self.diff_group) == -1:
+                self.content_layout.addWidget(self.diff_group)
 
     def add_chart(self, fig: Figure, title: str):
         """添加图表
@@ -463,6 +495,36 @@ class TrendView(QWidget):
         """刷新按钮点击事件"""
         if self.on_refresh_trend:
             self.on_refresh_trend()
+
+    def _populate_diff_controls(self):
+        """根据当前数据集填充差分选择器"""
+        try:
+            self.diff_minuend_combo.blockSignals(True)
+            self.diff_subtrahend_combo.blockSignals(True)
+            self.diff_minuend_combo.clear()
+            self.diff_subtrahend_combo.clear()
+            for i, (_data, z_depth, file_name) in enumerate(self._datasets):
+                label = f"{file_name} (Z={z_depth}μm)"
+                self.diff_minuend_combo.addItem(label, i)
+                self.diff_subtrahend_combo.addItem(label, i)
+            self.diff_button.setEnabled(len(self._datasets) >= 2)
+        finally:
+            self.diff_minuend_combo.blockSignals(False)
+            self.diff_subtrahend_combo.blockSignals(False)
+
+    def _on_calculate_difference_clicked(self):
+        """差分按钮点击事件"""
+        if not self.on_calculate_difference:
+            return
+        idx_a = self.diff_minuend_combo.currentData()
+        idx_b = self.diff_subtrahend_combo.currentData()
+        if idx_a is None or idx_b is None:
+            return
+        if idx_a == idx_b:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "提示", "请选择两个不同的层进行差分")
+            return
+        self.on_calculate_difference(int(idx_a), int(idx_b))
 
     # -------- 布局工具栏相关逻辑 --------
     def _on_invert_selection(self):

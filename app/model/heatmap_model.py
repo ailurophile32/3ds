@@ -2101,7 +2101,83 @@ class HeatmapModel(BaseModel):
             
             self._log_operation(f"日志已导出到: {file_path}", 'INFO')
             return True
-            
         except Exception as e:
             self._log_error(f"导出日志失败: {e}", e)
             return False
+
+    def calculate_difference_map(
+        self,
+        minuend_index: int,
+        subtrahend_index: int,
+        resolution: int | None = None,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """计算两层数据的差分网格 (被减数 - 减数)
+
+        KISS/DRY: 复用通用插值与圆形遮罩逻辑，返回统一网格与差分矩阵。
+
+        Args:
+            minuend_index: 被减数层索引（结果 = 被减数 - 减数）
+            subtrahend_index: 减数层索引
+            resolution: 网格分辨率；默认取性能配置的 resolution
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray, np.ndarray]: (xi_grid, yi_grid, diff_values)
+        """
+        if self.get_dataset_count() < 2:
+            raise ValueError("至少需要两层数据才能计算差分")
+        if not (0 <= minuend_index < len(self.data_sets)):
+            raise ValueError(f"无效的被减数索引: {minuend_index}")
+        if not (0 <= subtrahend_index < len(self.data_sets)):
+            raise ValueError(f"无效的减数索引: {subtrahend_index}")
+        if minuend_index == subtrahend_index:
+            raise ValueError("差分的两层不能相同")
+
+        # 提取两层数据
+        data_a, z_a, name_a = self.data_sets[minuend_index]
+        data_b, z_b, name_b = self.data_sets[subtrahend_index]
+
+        # 基本列校验
+        required_cols = {'X', 'Y', 'Value'}
+        if not required_cols.issubset(set(data_a.columns)) or not required_cols.issubset(set(data_b.columns)):
+            raise ValueError("数据列缺失，需包含 X/Y/Value")
+
+        x_a, y_a, v_a = data_a['X'].values, data_a['Y'].values, data_a['Value'].values
+        x_b, y_b, v_b = data_b['X'].values, data_b['Y'].values, data_b['Value'].values
+
+        # 计算各自中心与半径
+        x_center_a = (x_a.max() + x_a.min()) / 2
+        y_center_a = (y_a.max() + y_a.min()) / 2
+        radius_a = max(x_a.max() - x_a.min(), y_a.max() - y_a.min()) / 2
+
+        x_center_b = (x_b.max() + x_b.min()) / 2
+        y_center_b = (y_b.max() + y_b.min()) / 2
+        radius_b = max(x_b.max() - x_b.min(), y_b.max() - y_b.min()) / 2
+
+        # 统一网格：采用两层中心的平均值，半径取两者较小值保证交集
+        x_center = (x_center_a + x_center_b) / 2
+        y_center = (y_center_a + y_center_b) / 2
+        radius = min(radius_a, radius_b)
+
+        res = resolution or int(self.performance_settings.get('resolution', 200))
+        res = max(50, min(1000, res))  # 合理约束
+
+        xi = np.linspace(x_center - radius, x_center + radius, res)
+        yi = np.linspace(y_center - radius, y_center + radius, res)
+        xi_grid, yi_grid = np.meshgrid(xi, yi)
+
+        # 插值到统一网格
+        zi_a = self._interpolate_data(x_a, y_a, v_a, xi_grid, yi_grid)
+        zi_b = self._interpolate_data(x_b, y_b, v_b, xi_grid, yi_grid)
+
+        # 圆形遮罩（略微收缩避免边缘伪值）
+        distances = np.sqrt((xi_grid - x_center) ** 2 + (yi_grid - y_center) ** 2)
+        mask = distances > radius * 0.98
+        zi_a = zi_a.copy()
+        zi_b = zi_b.copy()
+        zi_a[mask] = np.nan
+        zi_b[mask] = np.nan
+
+        # 差分：被减数 - 减数
+        diff = zi_a - zi_b
+
+        return xi_grid, yi_grid, diff

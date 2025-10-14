@@ -40,7 +40,9 @@ class HeatmapController(BaseController):
         self.trend_model = TrendModel()
         self.trend_controller = TrendController(
             self.trend_model,
-            self.view.trend_view
+            self.view.trend_view,
+            heatmap_model=self.model,
+            parent=self.view
         )
         
         self.init_callbacks()
