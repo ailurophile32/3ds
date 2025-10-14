@@ -378,6 +378,14 @@ class HeatmapView(BaseView):
         visualization_tab_layout = QVBoxLayout(visualization_tab)
         visualization_tab_layout.setContentsMargins(0, 0, 0, 0)
 
+        # 使可视化页支持垂直滚动，避免新增内容挤占3D视图
+        from PySide6.QtWidgets import QScrollArea
+        self.visualization_scroll = QScrollArea()
+        self.visualization_scroll.setWidgetResizable(True)
+        visualization_content = QWidget()
+        self.visualization_content_layout = QVBoxLayout(visualization_content)
+        self.visualization_content_layout.setContentsMargins(0, 0, 0, 0)
+
         # 可视化+预览容器
         visual_container = QWidget()
         visual_container_layout = QHBoxLayout(visual_container)
@@ -405,8 +413,57 @@ class HeatmapView(BaseView):
         self.preview_scroll_area.hide()  # 初始隐藏，仅在3D模式下显示
 
         visual_container_layout.addWidget(self.preview_scroll_area)
-        visualization_tab_layout.addWidget(visual_container, 1)
+        self.visualization_content_layout.addWidget(visual_container, 1)
+        
+        # 智能结论区域（常驻展示在可视化下方，仅3D时可见）
+        self.ai_summary_group = QGroupBox("智能数据分析结论")
+        ai_summary_layout = QVBoxLayout(self.ai_summary_group)
+        self.ai_summary_label = QLabel("未加载数据")
+        self.ai_summary_label.setWordWrap(True)
+        self.ai_summary_label.setTextFormat(Qt.TextFormat.RichText)
+        self.ai_summary_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.ai_summary_label.setStyleSheet(
+            """
+            QLabel {
+                background: #f9fbfd;
+                border: 1px solid #e0e6ef;
+                border-radius: 6px;
+                padding: 8px 10px;
+                color: #2c3e50;
+                font-size: 12px;
+            }
+            """
+        )
+        ai_summary_layout.addWidget(self.ai_summary_label)
+        self.visualization_content_layout.addWidget(self.ai_summary_group)
+        self.ai_summary_group.hide()  # 默认仅3D显示
+
+        # 将内容放入滚动区域
+        self.visualization_scroll.setWidget(visualization_content)
+        visualization_tab_layout.addWidget(self.visualization_scroll, 1)
         self.tab_widget.addTab(visualization_tab, "可视化")
+
+        # 智能结论区域（常驻展示在可视化下方）
+        self.ai_summary_group = QGroupBox("智能数据分析结论")
+        ai_summary_layout = QVBoxLayout(self.ai_summary_group)
+        self.ai_summary_label = QLabel("未加载数据")
+        self.ai_summary_label.setWordWrap(True)
+        self.ai_summary_label.setTextFormat(Qt.TextFormat.RichText)
+        self.ai_summary_label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        self.ai_summary_label.setStyleSheet(
+            """
+            QLabel {
+                background: #f9fbfd;
+                border: 1px solid #e0e6ef;
+                border-radius: 6px;
+                padding: 8px 10px;
+                color: #2c3e50;
+                font-size: 12px;
+            }
+            """
+        )
+        ai_summary_layout.addWidget(self.ai_summary_label)
+        visualization_tab_layout.addWidget(self.ai_summary_group)
 
         # 2D 点位值列表（仅2D显示）
         self.point_group = QGroupBox("选中点值")
@@ -428,7 +485,7 @@ class HeatmapView(BaseView):
         btn_bar.addWidget(self.btn_clear_points)
         btn_bar.addStretch()
         point_layout.addLayout(btn_bar)
-        visualization_tab_layout.addWidget(self.point_group)
+        self.visualization_content_layout.addWidget(self.point_group)
         self.point_group.hide()
 
         # === 标签页2: 统计分析 ===
@@ -1102,6 +1159,20 @@ class HeatmapView(BaseView):
         self.data_range_label.setWordWrap(True)
         self.data_range_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+    def update_ai_summary(self, html_text: str) -> None:
+        """更新智能结论显示内容（支持富文本）
+
+        Args:
+            html_text: 富文本/HTML 字符串
+        """
+        try:
+            if not html_text:
+                html_text = "未生成结论"
+            wrapped = f'<div style="line-height:1.6;">{html_text}</div>'
+            self.ai_summary_label.setText(wrapped)
+        except Exception:
+            self.ai_summary_label.setText(str(html_text))
+
     def set_range_values(self, vmin: float, vmax: float) -> None:
         """设置手动范围值
 
@@ -1149,6 +1220,9 @@ class HeatmapView(BaseView):
         # 隐藏右侧预览栏（仅3D模式使用）
         if hasattr(self, "preview_scroll_area"):
             self.preview_scroll_area.hide()
+        # 2D视图时隐藏智能结论，避免占位
+        if hasattr(self, "ai_summary_group"):
+            self.ai_summary_group.hide()
 
         # 回放已选点位标记
         try:
@@ -1192,6 +1266,9 @@ class HeatmapView(BaseView):
         # 隐藏点位值列表（仅2D使用）
         if hasattr(self, "point_group"):
             self.point_group.hide()
+        # 3D视图时显示智能结论（在滚动下方，不挤占3D图区域）
+        if hasattr(self, "ai_summary_group"):
+            self.ai_summary_group.show()
 
     def _clear_visualization(self) -> None:
         """清除可视化区域的内容"""

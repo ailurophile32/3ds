@@ -61,6 +61,9 @@ class HeatmapModel(BaseModel):
             'memory_usage': [],
             'data_processing_times': []
         }
+        
+        # 最新一次面向UI的智能结论缓存
+        self._last_ai_summary_html: str | None = None
     
     def _load_configuration(self):
         """加载配置，自动处理向后兼容性和迁移"""
@@ -914,6 +917,94 @@ class HeatmapModel(BaseModel):
     def get_dataset_count(self) -> int:
         """获取数据集数量"""
         return len(self.data_sets)
+
+    # ===== 智能结论生成 =====
+    def generate_ai_summary_html(self) -> str:
+        """基于当前数据集生成可读的HTML结论文本。
+        KISS/DRY：仅使用稳健统计量与简单规则，避免外部依赖。
+        """
+        try:
+            if len(self.data_sets) == 0:
+                return "<b>状态</b>：未加载数据。请先导入 CSV/Excel。"
+
+            # 汇总所有层的关键统计
+            import numpy as np
+            layer_stats: list[dict] = []
+            all_values = []
+            for (df, z, name) in self.data_sets:
+                vals = df['Value'].to_numpy()
+                vals = vals[np.isfinite(vals)]
+                if vals.size == 0:
+                    continue
+                all_values.append(vals)
+                layer_stats.append({
+                    'z': float(z),
+                    'name': name,
+                    'mean': float(np.mean(vals)),
+                    'std': float(np.std(vals)),
+                    'p05': float(np.percentile(vals, 5)),
+                    'p95': float(np.percentile(vals, 95)),
+                    'min': float(np.min(vals)),
+                    'max': float(np.max(vals)),
+                    'count': int(vals.size)
+                })
+
+            if not layer_stats:
+                return "<b>状态</b>：数据为空或无有效数值。"
+
+            all_vals = np.concatenate(all_values)
+            g_mean = float(np.mean(all_vals))
+            g_std = float(np.std(all_vals))
+            g_min = float(np.min(all_vals))
+            g_max = float(np.max(all_vals))
+
+            # 规则：整体均匀性、层间趋势、热点占比估计
+            uniform = '高' if g_std <= max(1.0, 0.15 * (abs(g_max) + abs(g_min)) / 2) else '一般'
+
+            # 层间趋势：按Z排序看均值随Z的相关性
+            layer_stats.sort(key=lambda d: d['z'])
+            zs = np.array([s['z'] for s in layer_stats], dtype=float)
+            means = np.array([s['mean'] for s in layer_stats], dtype=float)
+            trend_note = "—"
+            if len(layer_stats) >= 2 and np.std(means) > 1e-6:
+                # 简单的单调性判定
+                increasing = np.all(np.diff(means) >= 0)
+                decreasing = np.all(np.diff(means) <= 0)
+                if increasing:
+                    trend_note = "均值随深度上升，表层更接近中性。"
+                elif decreasing:
+                    trend_note = "均值随深度下降，表层拉/压应力更明显。"
+                else:
+                    trend_note = "层间均值波动较小，无显著单调趋势。"
+
+            # 热点估计：超过 p95 或低于 p05 的点比例（近似）
+            p05 = float(np.percentile(all_vals, 5))
+            p95 = float(np.percentile(all_vals, 95))
+            hot_ratio = float((np.sum(all_vals > p95) + np.sum(all_vals < p05)) / all_vals.size)
+            risk = "低" if hot_ratio < 0.03 else ("中" if hot_ratio < 0.1 else "高")
+
+            # 文本拼装为HTML（不包含“建议”段落）
+            bullets = [
+                f"<b>全局分布</b>：均值 {g_mean:.2f} MPa，标准差 {g_std:.2f}，范围 {g_min:.2f} ~ {g_max:.2f} MPa，整体均匀性<strong>{uniform}</strong>。",
+                f"<b>层间趋势</b>：{trend_note}",
+                f"<b>热点与离群</b>：越界占比约 {hot_ratio*100:.1f}% ，风险等级<strong>{risk}</strong>。",
+            ]
+
+            # 逐层摘要（最多前三层，避免太长）
+            head = layer_stats[:3]
+            per_layer = "".join([
+                f"<li>Z={s['z']:.1f}μm（{s['name']}）：均值 {s['mean']:.2f}，σ {s['std']:.2f}，P5 {s['p05']:.2f}，P95 {s['p95']:.2f}</li>"
+                for s in head
+            ])
+            if per_layer:
+                bullets.append(f"<b>分层摘要</b>：<ul style='margin:4px 0 0 16px;'>{per_layer}</ul>")
+
+            html = "<br>".join(bullets)
+            self._last_ai_summary_html = html
+            return html
+        except Exception as e:
+            self._log_error(f"生成智能结论失败: {e}")
+            return "<b>结论</b>：生成失败。"
     
     def update_colorbar_settings(self, settings: Dict[str, Any]):
         """更新色标卡设置

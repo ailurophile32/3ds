@@ -112,6 +112,12 @@ class HeatmapController(BaseController):
         elif event_type == 'colorbar_settings_updated':
             # 更新色标卡设置
             self.update_data_range_display()
+            # 色标相关变更后刷新智能结论
+            try:
+                html = self.model.generate_ai_summary_html()
+                self.view.update_ai_summary(html)
+            except Exception:
+                pass
             
         elif event_type == 'performance_settings_updated':
             # 性能设置已更新，可能需要重新生成图形
@@ -120,6 +126,11 @@ class HeatmapController(BaseController):
         elif event_type == 'colormap_changed':
             # 色标已变更，可能需要重新生成图形
             self.view.update_status("色标已变更")
+            try:
+                html = self.model.generate_ai_summary_html()
+                self.view.update_ai_summary(html)
+            except Exception:
+                pass
         elif event_type == 'load_error':
             # 明确显示底层错误信息
             try:
@@ -234,6 +245,12 @@ class HeatmapController(BaseController):
                         # 否则生成2D热力图
                         self.on_generate_2d(last_index)
                     self._apply_import_initial_logic(last_index)
+                    # 刷新智能结论
+                    try:
+                        html = self.model.generate_ai_summary_html()
+                        self.view.update_ai_summary(html)
+                    except Exception:
+                        pass
         except Exception as e:
             self.handle_exception(e, "处理拖拽文件")
     
@@ -306,6 +323,12 @@ class HeatmapController(BaseController):
             fig = self.model.create_circular_heatmap_2d(index)
             self.view.show_2d_figure(fig)
             self.view.update_status('2D圆形热力图生成完成')
+            # 更新智能结论
+            try:
+                html = self.model.generate_ai_summary_html()
+                self.view.update_ai_summary(html)
+            except Exception:
+                pass
         except Exception as e:
             self.view.message_handler.show_error('错误', f'生成2D热力图失败: {str(e)}')
     
@@ -377,6 +400,13 @@ class HeatmapController(BaseController):
             
             # 更新数据范围显示为3D模式（显示所有数据集的综合范围）
             self.update_data_range_display()
+
+            # 更新智能结论
+            try:
+                html = self.model.generate_ai_summary_html()
+                self.view.update_ai_summary(html)
+            except Exception:
+                pass
 
             # 生成并显示右侧2D层缩略图预览
             try:
