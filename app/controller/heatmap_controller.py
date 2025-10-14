@@ -210,6 +210,8 @@ class HeatmapController(BaseController):
                 last_index = len(self.model.data_sets) - 1
                 if last_index >= 0:
                     self._apply_import_initial_logic(last_index)
+                    # 导入完成后：后台自动触发多层对比
+                    self._auto_trigger_multi_compare()
         except Exception as e:
             self.handle_exception(e, "加载CSV文件")
     
@@ -256,6 +258,8 @@ class HeatmapController(BaseController):
                         # 否则生成2D热力图
                         self.on_generate_2d(last_index)
                     self._apply_import_initial_logic(last_index)
+                    # 导入完成后：后台自动触发多层对比
+                    self._auto_trigger_multi_compare()
                     # 刷新智能结论
                     try:
                         html = self.model.generate_ai_summary_html()
@@ -1032,3 +1036,17 @@ class HeatmapController(BaseController):
             self.on_generate_3d()
         else:
             self.on_generate_2d(last_index)
+
+    def _auto_trigger_multi_compare(self) -> None:
+        """在后台自动勾选全部层并生成多层对比图表。
+        
+        满足≥2层时调用 DifferenceController 的对比入口，
+        不切换UI标签，仅生成结果以便用户随时查看。
+        """
+        try:
+            count = self.model.get_dataset_count()
+            if count >= 2 and hasattr(self, 'difference_controller') and self.difference_controller:
+                indices = list(range(count))
+                self.difference_controller.on_compare_layers(indices)
+        except Exception as e:
+            print(f"自动多层对比失败: {e}")
