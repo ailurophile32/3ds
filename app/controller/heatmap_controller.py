@@ -212,6 +212,8 @@ class HeatmapController(BaseController):
                     self._apply_import_initial_logic(last_index)
                     # 导入完成后：后台自动触发多层对比
                     self._auto_trigger_multi_compare()
+                    # 导入完成后：自动触发首两层差分云图
+                    self._auto_trigger_difference()
         except Exception as e:
             self.handle_exception(e, "加载CSV文件")
     
@@ -260,6 +262,8 @@ class HeatmapController(BaseController):
                     self._apply_import_initial_logic(last_index)
                     # 导入完成后：后台自动触发多层对比
                     self._auto_trigger_multi_compare()
+                    # 导入完成后：自动触发首两层差分云图
+                    self._auto_trigger_difference()
                     # 刷新智能结论
                     try:
                         html = self.model.generate_ai_summary_html()
@@ -1050,3 +1054,12 @@ class HeatmapController(BaseController):
                 self.difference_controller.on_compare_layers(indices)
         except Exception as e:
             print(f"自动多层对比失败: {e}")
+
+    def _auto_trigger_difference(self) -> None:
+        """在后台默认以第1层为被减数、第2层为减数生成差分云图。"""
+        try:
+            if self.model.get_dataset_count() >= 2 and hasattr(self, 'difference_controller') and self.difference_controller:
+                # 默认使用索引 0 和 1
+                self.difference_controller.on_calculate_difference(0, 1)
+        except Exception as e:
+            print(f"自动差分云图失败: {e}")
