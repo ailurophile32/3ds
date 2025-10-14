@@ -49,8 +49,8 @@ class StatisticsView(QWidget):
         
         control_bar.addStretch()
         
-        # 导出按钮
-        self.export_button = QPushButton("导出统计报告")
+        # 导出按钮（生成报告）
+        self.export_button = QPushButton("生成报告")
         self.export_button.clicked.connect(self._on_export_clicked)
         self.export_button.setEnabled(False)
         control_bar.addWidget(self.export_button)

@@ -7,7 +7,10 @@
 from typing import List, Tuple, Optional
 import numpy as np
 from matplotlib.figure import Figure
+from matplotlib.backends.backend_pdf import PdfPages
 from PySide6.QtWidgets import QFileDialog, QMessageBox
+import io
+from PIL import Image
 
 from app.model.statistics_model import StatisticsModel
 from app.view.statistics_view import StatisticsView
@@ -32,6 +35,23 @@ class StatisticsController:
         self.view.on_dataset_changed = self.on_dataset_changed
         self.view.on_outlier_method_changed = self.on_outlier_method_changed
         self.view.on_export_statistics = self.on_export_statistics
+        
+        # 外部上下文（由热力图控制器注入）
+        self._heatmap_model = None
+        self._trend_controller = None
+        self._difference_controller = None
+
+    def set_external_context(self, *, heatmap_model=None, trend_controller=None, difference_controller=None):
+        """注入外部上下文，便于生成综合PDF报告。
+        
+        Args:
+            heatmap_model: 提供2D/3D图的模型
+            trend_controller: 生成趋势图表的方法提供者
+            difference_controller: 生成多层对比/差分图表的方法提供者
+        """
+        self._heatmap_model = heatmap_model
+        self._trend_controller = trend_controller
+        self._difference_controller = difference_controller
     
     def set_data_sets(self, data_sets: List[Tuple]):
         """设置数据集
@@ -398,71 +418,116 @@ class StatisticsController:
         return fig
     
     def on_export_statistics(self):
-        """导出统计报告"""
+        """生成PDF综合报告：包含2D热力图、3D图、统计/趋势/对比图表与结论"""
         try:
-            # 弹出文件保存对话框
+            # 选择保存路径
             file_path, _ = QFileDialog.getSaveFileName(
-                self.view, "导出统计报告", "", 
-                "CSV文件 (*.csv);;文本文件 (*.txt);;所有文件 (*)"
+                self.view, "生成报告", "SiC_应力分析报告.pdf", "PDF 文件 (*.pdf)"
             )
-            
             if not file_path:
                 return
-            
-            # 获取当前数据集的统计信息
+
+            # 当前数据集统计
             basic_stats = self.model.calculate_basic_statistics(self.current_dataset_index)
             distribution = self.model.calculate_distribution_analysis(self.current_dataset_index)
-            outliers = self.model.detect_outliers(self.current_dataset_index, 
-                                                  self.current_outlier_method)
-            
-            # 生成报告内容
-            report_lines = []
-            report_lines.append("=" * 60)
-            report_lines.append("SiC晶圆应力分析工具 - 统计分析报告")
-            report_lines.append("=" * 60)
-            report_lines.append("")
-            
-            # 数据集信息
-            report_lines.append(f"数据集: {basic_stats.get('file_name', 'Unknown')}")
-            report_lines.append(f"Z轴深度: {basic_stats.get('z_depth', 0)} μm")
-            report_lines.append("")
-            
-            # 基础统计
-            report_lines.append("【描述性统计】")
-            report_lines.append(f"样本数量: {basic_stats.get('count', 0)}")
-            report_lines.append(f"平均值: {basic_stats.get('mean', 0):.4f} MPa")
-            report_lines.append(f"中位数: {basic_stats.get('median', 0):.4f} MPa")
-            report_lines.append(f"标准差: {basic_stats.get('std', 0):.4f} MPa")
-            report_lines.append(f"变异系数: {basic_stats.get('cv', 0):.2f}%")
-            report_lines.append(f"最小值: {basic_stats.get('min', 0):.4f} MPa")
-            report_lines.append(f"最大值: {basic_stats.get('max', 0):.4f} MPa")
-            report_lines.append(f"极差: {basic_stats.get('range', 0):.4f} MPa")
-            report_lines.append("")
-            
-            # 分布特征
-            report_lines.append("【分布特征】")
-            report_lines.append(f"偏度: {basic_stats.get('skewness', 0):.4f}")
-            report_lines.append(f"峰度: {basic_stats.get('kurtosis', 0):.4f}")
-            report_lines.append(f"Shapiro-Wilk检验 p值: {distribution.get('shapiro_p_value', 0):.6f}")
-            report_lines.append(f"正态性(Shapiro): {'是' if distribution.get('is_normal_shapiro') else '否'}")
-            report_lines.append("")
-            
-            # 异常值检测
-            report_lines.append("【异常值检测】")
-            report_lines.append(f"检测方法: {outliers.get('method', 'Unknown')}")
-            report_lines.append(f"异常值数量: {outliers.get('outlier_count', 0)}")
-            report_lines.append(f"异常值比例: {outliers.get('outlier_ratio', 0):.2f}%")
-            report_lines.append("")
-            
-            report_lines.append("=" * 60)
-            
-            # 写入文件
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(report_lines))
-            
-            QMessageBox.information(self.view, "成功", f"统计报告已导出到:\n{file_path}")
-            
+            outliers = self.model.detect_outliers(self.current_dataset_index, self.current_outlier_method)
+
+            figures: List[Figure] = []
+
+            # 统计页四张图
+            data, _z, _name = self.model.data_sets[self.current_dataset_index]
+            if 'Value' in data.columns:
+                vals = data['Value'].values
+                vals = vals[~np.isnan(vals)]
+                figures.append(self._create_histogram_chart(vals, basic_stats, distribution))
+                figures.append(self._create_boxplot_chart(vals, basic_stats, outliers))
+                figures.append(self._create_qq_plot(vals))
+                figures.append(self._create_cdf_plot(vals, basic_stats))
+
+            # 所有2D热力图
+            try:
+                if self._heatmap_model and self._heatmap_model.get_dataset_count() > 0:
+                    for i in range(self._heatmap_model.get_dataset_count()):
+                        figures.append(self._heatmap_model.create_circular_heatmap_2d(i))
+            except Exception:
+                pass
+
+            # 3D图（转为PNG嵌入）
+            try:
+                if self._heatmap_model:
+                    import plotly.io as pio
+                    fig3d = self._heatmap_model.create_plotly_3d_heatmap()
+                    if fig3d is not None:
+                        png = pio.to_image(fig3d, format='png', width=1600, height=1000, scale=2)
+                        image = Image.open(io.BytesIO(png))
+                        holder = Figure(figsize=(11, 7))
+                        ax = holder.add_subplot(111)
+                        ax.axis('off')
+                        ax.imshow(image)
+                        figures.append(holder)
+            except Exception:
+                pass
+
+            # 趋势图
+            try:
+                if self._trend_controller:
+                    trend_data = self._trend_controller.model.get_z_trend_data()
+                    if trend_data and trend_data.get('layer_count', 0) > 0:
+                        figures.append(self._trend_controller._create_z_trend_chart(trend_data))
+                        figures.append(self._trend_controller._create_std_trend_chart(trend_data))
+                        figures.append(self._trend_controller._create_minmax_trend_chart(trend_data))
+                        gradient = self._trend_controller.model.calculate_gradient()
+                        if gradient:
+                            figures.append(self._trend_controller._create_gradient_chart(gradient))
+            except Exception:
+                pass
+
+            # 多层对比/差分图
+            try:
+                if self._difference_controller and len(self._difference_controller.model.data_sets) >= 2:
+                    indices = list(range(min(5, len(self._difference_controller.model.data_sets))))
+                    comp = self._difference_controller.model.calculate_multi_layer_comparison(indices)
+                    figures.append(self._difference_controller._create_multi_layer_bar_chart(comp))
+                    figures.append(self._difference_controller._create_multi_layer_boxplot(indices))
+                    if len(indices) <= 5:
+                        figures.append(self._difference_controller._create_multi_layer_histogram(indices))
+            except Exception:
+                pass
+
+            # 输出PDF
+            with PdfPages(file_path) as pdf:
+                # 封面
+                cover = Figure(figsize=(11.69, 8.27))
+                ax = cover.add_subplot(111)
+                ax.axis('off')
+                title = "SiC晶圆应力分析报告"
+                subtitle = f"数据集: {basic_stats.get('file_name','')}  |  Z={basic_stats.get('z_depth',0)} μm"
+                ax.text(0.5, 0.65, title, fontsize=24, fontweight='bold', ha='center')
+                ax.text(0.5, 0.55, subtitle, fontsize=12, ha='center')
+                summary = (
+                    f"样本数: {basic_stats.get('count',0)} | 均值: {basic_stats.get('mean',0):.2f} MPa | "
+                    f"中位数: {basic_stats.get('median',0):.2f} MPa | σ: {basic_stats.get('std',0):.2f} MPa\n"
+                    f"偏度: {basic_stats.get('skewness',0):.2f} | 峰度: {basic_stats.get('kurtosis',0):.2f} | "
+                    f"异常值: {outliers.get('outlier_count',0)} ({outliers.get('outlier_ratio',0):.2f}%)"
+                )
+                ax.text(0.5, 0.40, summary, fontsize=11, ha='center')
+                pdf.savefig(cover, bbox_inches='tight')
+
+                # 简单目录
+                toc = Figure(figsize=(11.69, 8.27))
+                ax = toc.add_subplot(111)
+                ax.axis('off')
+                items = ["目录", "1. 统计分析", "2. 2D热力图", "3. 3D可视化", "4. 趋势分析", "5. 多层对比/差分"]
+                for i, line in enumerate(items):
+                    ax.text(0.1, 0.9 - 0.07*i, line, fontsize=13)
+                pdf.savefig(toc, bbox_inches='tight')
+
+                # 所有图表
+                for fig in figures:
+                    pdf.savefig(fig, bbox_inches='tight')
+
+            QMessageBox.information(self.view, "成功", f"报告已生成:\n{file_path}")
         except Exception as e:
-            print(f"导出统计报告错误: {e}")
-            QMessageBox.warning(self.view, "错误", f"导出失败: {str(e)}")
+            print(f"生成报告错误: {e}")
+            QMessageBox.warning(self.view, "错误", f"生成失败: {str(e)}")
 

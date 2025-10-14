@@ -53,6 +53,17 @@ class HeatmapController(BaseController):
             parent=self.view
         )
         
+        # 将外部上下文注入统计控制器，便于生成综合报告
+        try:
+            if hasattr(self.statistics_controller, 'set_external_context'):
+                self.statistics_controller.set_external_context(
+                    heatmap_model=self.model,
+                    trend_controller=self.trend_controller,
+                    difference_controller=self.difference_controller,
+                )
+        except Exception:
+            pass
+        
         self.init_callbacks()
     
     def on_model_changed(self, event_type: str, data: Any) -> None:
