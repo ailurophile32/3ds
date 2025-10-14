@@ -311,7 +311,7 @@ class StatisticsView(QWidget):
         self.placeholder_label.setStyleSheet("color: #7f8c8d; font-size: 14px;")
         self.chart_layout.addWidget(self.placeholder_label)
     
-    def add_chart(self, fig: Figure, title: str, info_text: Optional[str] = None):
+    def add_chart(self, fig: Figure, title: str, info_text: Optional[str] = None, summary_text: Optional[str] = None):
         """添加图表到视图
         
         Args:
@@ -370,7 +370,16 @@ class StatisticsView(QWidget):
         canvas.setMinimumHeight(300)
         chart_layout.addWidget(canvas)
 
-        # 不添加额外说明面板，保持界面简洁
+        # 图表下方结论文本（可选）
+        if summary_text:
+            summary_label = QLabel(summary_text)
+            summary_label.setWordWrap(True)
+            summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            summary_label.setStyleSheet(
+                "color: #2c3e50; background: #f7f9fc; border: 1px solid #e8eaf0;"
+                "border-radius: 4px; padding: 10px; font-size: 12px;"
+            )
+            chart_layout.addWidget(summary_label)
         
         self.chart_layout.addWidget(chart_frame)
     

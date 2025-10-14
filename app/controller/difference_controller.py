@@ -77,22 +77,25 @@ class DifferenceController:
     # -------- 绘图 --------
     def _generate_multi_layer_charts(self, indices: List[int], comparison: dict):
         fig1 = self._create_multi_layer_bar_chart(comparison)
+        info1 = "分别对比各层的均值、标准差、变异系数与极值范围，定位差异显著的层。"
+        summary1 = self._build_multi_bar_summary(comparison)
         self.view.add_chart_below_selector(
-            fig1, f"多层统计指标对比 ({len(indices)}层)",
-            "分别对比各层的均值、标准差、变异系数与极值范围，定位差异显著的层。"
+            fig1, f"多层统计指标对比 ({len(indices)}层)", info1, summary1
         )
 
         fig2 = self._create_multi_layer_boxplot(indices)
+        info2 = "多层箱线图并列显示，观察多层的分布、离群点与中位数差异。"
+        summary2 = self._build_multi_box_summary(indices)
         self.view.add_chart_below_selector(
-            fig2, "多层应力分布对比",
-            "多层箱线图并列显示，观察多层的分布、离群点与中位数差异。"
+            fig2, "多层应力分布对比", info2, summary2
         )
 
         if len(indices) <= 5:
             fig3 = self._create_multi_layer_histogram(indices)
+            info3 = "各层直方图以不同颜色叠加，便于比较整体分布形状与位置差异。"
+            summary3 = self._build_multi_hist_summary(indices)
             self.view.add_chart_below_selector(
-                fig3, "多层应力分布直方图",
-                "各层直方图以不同颜色叠加，便于比较整体分布形状与位置差异。"
+                fig3, "多层应力分布直方图", info3, summary3
             )
 
     def _create_multi_layer_bar_chart(self, comparison: dict) -> Figure:
@@ -163,13 +166,17 @@ class DifferenceController:
             return
         s1 = data1['Value'].values; s2 = data2['Value'].values
         v1 = s1[~np.isnan(s1)]; v2 = s2[~np.isnan(s2)]
+        fig_dist = self._create_distribution_comparison(v1, v2, comparison)
+        info_dist = "两层分布直方图叠加，虚线为各自均值；用于直接比较总体分布与均值差异。"
+        summary_dist = self._build_pair_dist_summary(v1, v2, comparison)
         self.view.add_chart_below_selector(
-            self._create_distribution_comparison(v1, v2, comparison), "应力分布对比",
-            "两层分布直方图叠加，虚线为各自均值；用于直接比较总体分布与均值差异。"
+            fig_dist, "应力分布对比", info_dist, summary_dist
         )
+        fig_box = self._create_boxplot_comparison(v1, v2, comparison)
+        info_box = "两层箱线图并列展示Q1/Q2/Q3与异常值，快速比较离散程度与集中趋势。"
+        summary_box = self._build_pair_box_summary(v1, v2, comparison)
         self.view.add_chart_below_selector(
-            self._create_boxplot_comparison(v1, v2, comparison), "统计特征对比",
-            "两层箱线图并列展示Q1/Q2/Q3与异常值，快速比较离散程度与集中趋势。"
+            fig_box, "统计特征对比", info_box, summary_box
         )
 
     def _create_distribution_comparison(self, s1: np.ndarray, s2: np.ndarray, comparison: dict) -> Figure:
@@ -194,5 +201,90 @@ class DifferenceController:
             ax.text(1.5, y_max * 1.05, f"p={comparison['p_value']:.4f} *", ha='center', fontsize=10, color='red', fontweight='bold')
         ax.set_ylabel('应力 (MPa)'); ax.set_title('两层应力统计特征对比'); ax.grid(True, alpha=0.3, axis='y')
         return fig
+
+    # -------- 结论生成（差分对比） --------
+    def _build_pair_dist_summary(self, v1: np.ndarray, v2: np.ndarray, cmp: dict) -> str:
+        try:
+            m1, m2 = float(np.mean(v1)), float(np.mean(v2))
+            std1, std2 = float(np.std(v1, ddof=1)), float(np.std(v2, ddof=1))
+            delta = m1 - m2
+            direction = "层1均值更高" if delta > 0 else ("层2均值更高" if delta < 0 else "两层均值接近")
+            p = float(cmp.get('p_value', 1.0)) if 'p_value' in cmp else 1.0
+            sig = "显著" if p < 0.05 else "不显著"
+            return (
+                f"结论：{direction}（Δ均值={delta:.2f} MPa），波动分别为 {std1:.2f}/{std2:.2f} MPa。"
+                f"均值差异统计学上{sig}（p={p:.4f}）。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
+
+    def _build_pair_box_summary(self, v1: np.ndarray, v2: np.ndarray, cmp: dict) -> str:
+        try:
+            q_med = lambda v: float(np.median(v)) if len(v) > 0 else 0.0
+            med1, med2 = q_med(v1), q_med(v2)
+            iqr1 = float(np.percentile(v1, 75) - np.percentile(v1, 25)) if len(v1) > 0 else 0.0
+            iqr2 = float(np.percentile(v2, 75) - np.percentile(v2, 25)) if len(v2) > 0 else 0.0
+            direction = "层1中位数更高" if med1 > med2 else ("层2中位数更高" if med2 > med1 else "两层中位数接近")
+            sig = "显著" if cmp.get('significant', False) else "不显著"
+            return (
+                f"结论：{direction}（Q2差={med1 - med2:.2f} MPa）；离散IQR分别为 {iqr1:.2f}/{iqr2:.2f} MPa。"
+                f"统计结论{sig}（p={cmp.get('p_value', 1.0):.4f}）。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
+
+    def _build_multi_bar_summary(self, comparison: dict) -> str:
+        try:
+            layers = comparison.get('layers_stats', [])
+            if not layers:
+                return ""
+            import numpy as np
+            means = [s['mean'] for s in layers]
+            stds = [s['std'] for s in layers]
+            max_layer = layers[int(np.argmax(means))]['file_name']
+            min_layer = layers[int(np.argmin(means))]['file_name']
+            return (
+                f"结论：均值最高层为 {max_layer}，最低层为 {min_layer}。"
+                f"整体离散（标准差）中位数为 {float(np.median(stds)):.2f} MPa。"
+            )
+        except Exception:
+            return ""
+
+    def _build_multi_box_summary(self, indices: List[int]) -> str:
+        try:
+            import numpy as np
+            iqrs = []
+            for idx in indices:
+                data, _z, _ = self.model.data_sets[idx]
+                if 'Value' in data.columns:
+                    v = data['Value'].values
+                    v = v[~np.isnan(v)]
+                    if len(v) > 0:
+                        iqrs.append(float(np.percentile(v, 75) - np.percentile(v, 25)))
+            if not iqrs:
+                return ""
+            level = '较低' if np.median(iqrs) < 0.2 else '中等/偏高'
+            return f"结论：各层IQR中位数约 {float(np.median(iqrs)):.2f} MPa，离散程度整体{level}。"
+        except Exception:
+            return ""
+
+    def _build_multi_hist_summary(self, indices: List[int]) -> str:
+        try:
+            import numpy as np
+            means = []
+            for idx in indices:
+                data, _z, _ = self.model.data_sets[idx]
+                if 'Value' in data.columns:
+                    v = data['Value'].values
+                    v = v[~np.isnan(v)]
+                    if len(v) > 0:
+                        means.append(float(np.mean(v)))
+            if not means:
+                return ""
+            spread = float(np.ptp(means))
+            flag = '明显' if spread > 5 else '有限'
+            return f"结论：各层均值分布跨度约 {spread:.2f} MPa，层间整体水平差异{flag}。"
+        except Exception:
+            return ""
 
 

@@ -157,7 +157,7 @@ class DifferenceView(QWidget):
         if self.content_layout.indexOf(self.diff_group) == -1:
             self.content_layout.addWidget(self.diff_group)
 
-    def add_chart_below_selector(self, fig: Figure, title: str, info_text: str | None = None):
+    def add_chart_below_selector(self, fig: Figure, title: str, info_text: str | None = None, summary_text: str | None = None):
         if hasattr(self, 'placeholder_label') and self.placeholder_label:
             self.placeholder_label.deleteLater()
             self.placeholder_label = None
@@ -203,6 +203,17 @@ class DifferenceView(QWidget):
         canvas = FigureCanvas(fig)
         canvas.setMinimumHeight(300)
         chart_layout.addWidget(canvas)
+
+        # 图表下方结论文本（可选）
+        if summary_text:
+            summary_label = QLabel(summary_text)
+            summary_label.setWordWrap(True)
+            summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            summary_label.setStyleSheet(
+                "color: #2c3e50; background: #f7f9fc; border: 1px solid #e8eaf0;"
+                "border-radius: 4px; padding: 10px; font-size: 12px;"
+            )
+            chart_layout.addWidget(summary_label)
 
         if hasattr(self, 'layer_selection_group') and self.layer_selection_group:
             insert_index = self.content_layout.indexOf(self.layer_selection_group)

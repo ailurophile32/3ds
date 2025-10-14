@@ -152,7 +152,8 @@ class TrendController:
             "展示不同Z深度的应力均值与中位数的变化趋势，"
             "用于观察整体水平随深度的上升/下降及均值-中位数差异。"
         )
-        self.view.add_chart(fig1, "Z轴应力趋势分析", info1)
+        summary1 = self._build_z_trend_summary(trend_data)
+        self.view.add_chart(fig1, "Z轴应力趋势分析", info1, summary1)
         
         # 2. 标准差趋势图
         fig2 = self._create_std_trend_chart(trend_data)
@@ -160,7 +161,8 @@ class TrendController:
             "标准差反映离散程度；变异系数(标准差/均值)用于跨层对比相对波动，"
             "两轴合并便于同时评估绝对波动与相对波动。"
         )
-        self.view.add_chart(fig2, "Z轴标准差趋势", info2)
+        summary2 = self._build_std_trend_summary(trend_data)
+        self.view.add_chart(fig2, "Z轴标准差趋势", info2, summary2)
         
         # 3. 极值趋势图
         fig3 = self._create_minmax_trend_chart(trend_data)
@@ -168,7 +170,8 @@ class TrendController:
             "显示各层最小/最大值与均值，灰色区域为极差；"
             "用于识别是否存在异常层或极端值随深度的系统性变化。"
         )
-        self.view.add_chart(fig3, "Z轴极值趋势", info3)
+        summary3 = self._build_minmax_summary(trend_data)
+        self.view.add_chart(fig3, "Z轴极值趋势", info3, summary3)
         
         # 4. 梯度分析图
         gradient_data = self.model.calculate_gradient()
@@ -178,7 +181,8 @@ class TrendController:
                 "对均值-深度进行线性拟合得到斜率与R²；斜率表示梯度强弱，"
                 "R²表示线性解释度，用于判断是否存在线性梯度与其显著性。"
             )
-            self.view.add_chart(fig4, "Z轴应力梯度分析", info4)
+            summary4 = self._build_gradient_summary(gradient_data)
+            self.view.add_chart(fig4, "Z轴应力梯度分析", info4, summary4)
     
     def _create_z_trend_chart(self, trend_data: dict) -> Figure:
         """创建Z轴趋势图
@@ -339,6 +343,121 @@ class TrendController:
         
         
         return fig
+
+    # --------- 结论生成（趋势） ---------
+    def _build_z_trend_summary(self, trend_data: dict) -> str:
+        try:
+            z = trend_data['z_depths']
+            means = trend_data['mean_values']
+            medians = trend_data['median_values']
+            if len(z) >= 2:
+                # 简单线性拟合评估趋势方向
+                import numpy as np
+                slope = float(np.polyfit(z, means, 1)[0])
+            else:
+                slope = 0.0
+            diff_mean_median = float(np.mean(np.array(means) - np.array(medians)))
+            direction = "上升" if slope>0 else ("下降" if slope<0 else "基本平稳")
+            bias = "均值高于中位数（右偏）" if diff_mean_median>0 else ("均值低于中位数（左偏）" if diff_mean_median<0 else "均值≈中位数（对称）")
+            return (
+                f"结论：均值随深度{direction}，均值-中位数平均差 {diff_mean_median:.2f} MPa（{bias}）。"
+                f"若方向明显且需求敏感，建议结合梯度图与R²综合判断。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
+
+    def _build_std_trend_summary(self, trend_data: dict) -> str:
+        try:
+            import numpy as np
+            z = trend_data['z_depths']
+            stds = trend_data['std_values']
+            means = trend_data['mean_values']
+            cvs = [(s/m*100) if m!=0 else 0 for s,m in zip(stds,means)]
+            cv_mean = float(np.mean(cvs)) if cvs else 0.0
+            # 判断离散是否随深度增大
+            slope = float(np.polyfit(z, stds, 1)[0]) if len(z)>=2 else 0.0
+            direction = "增大" if slope>0 else ("减小" if slope<0 else "基本稳定")
+            level = "低波动" if cv_mean<10 else ("中等波动" if cv_mean<20 else "高波动")
+            return (
+                f"结论：标准差随深度{direction}；平均变异系数约 {cv_mean:.1f}%（{level}）。"
+                f"如需控制制程波动，建议关注CV较高的层。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
+
+    def _build_minmax_summary(self, trend_data: dict) -> str:
+        try:
+            import numpy as np
+            mins = trend_data['min_values']
+            maxs = trend_data['max_values']
+            means = trend_data['mean_values']
+            ranges = np.array(maxs) - np.array(mins)
+            range_mean = float(np.mean(ranges))
+            mean_band = f"均值带宽约 {range_mean:.2f} MPa"
+            risk = "极差较大，可能存在局部缺陷或应力集中" if range_mean>abs(np.mean(means))*0.8 else "极差适中"
+            return f"结论：{mean_band}；{risk}。"
+        except Exception:
+            return "结论生成失败：输入数据异常。"
+
+    def _build_gradient_summary(self, gradient_data: dict) -> str:
+        """根据拟合结果生成专业结论文本（用于图表下方）。
+        
+        规则：
+        - 梯度强度按 |slope| 分类：<0.01 极弱；0.01~0.05 中等；>=0.05 明显。
+        - 线性度按 R²：<0.3 较差；0.3~0.6 一般；>=0.6 良好。
+        - 显著性按 p 值：<0.05 显著；>=0.05 不显著。
+        - 同时报告全深度范围的趋势幅度 Δ= slope * (maxZ-minZ)。
+        """
+        try:
+            slope = float(gradient_data.get('slope', 0.0))
+            r2 = float(gradient_data.get('r_squared', 0.0))
+            p_val = float(gradient_data.get('p_value', 1.0))
+            std_err = float(gradient_data.get('std_error', 0.0))
+            z_depths = gradient_data.get('z_depths', []) or []
+            if len(z_depths) >= 2:
+                z_min, z_max = float(min(z_depths)), float(max(z_depths))
+                delta = slope * (z_max - z_min)
+            else:
+                z_min, z_max, delta = 0.0, 0.0, 0.0
+            # 强度等级
+            abs_slope = abs(slope)
+            if abs_slope < 0.01:
+                slope_level = "极弱"
+            elif abs_slope < 0.05:
+                slope_level = "中等"
+            else:
+                slope_level = "明显"
+            # 线性度等级
+            if r2 < 0.3:
+                linear_level = "较差"
+            elif r2 < 0.6:
+                linear_level = "一般"
+            else:
+                linear_level = "良好"
+            # 显著性
+            sig_text = "显著" if p_val < 0.05 else "不显著"
+            direction = "随深度上升" if slope > 0 else ("随深度下降" if slope < 0 else "与深度无关")
+            advice_parts = []
+            if p_val < 0.05 and abs_slope >= 0.05 and r2 >= 0.6:
+                advice_parts.append("存在显著且线性良好的垂向梯度，建议复核工艺/应力释放步骤")
+            if r2 < 0.3:
+                advice_parts.append("线性解释度较低，建议尝试二次/分段拟合或增加采样层数")
+            if p_val >= 0.05 and abs_slope < 0.01:
+                advice_parts.append("整体应力沿Z轴基本稳定，可作为厚度方向均匀性参考")
+            advice = "；".join(advice_parts) if advice_parts else ""
+            # 组织文本
+            lines = [
+                f"结论：应力均值{direction}（斜率 {slope:.4f} MPa/μm，{slope_level}），",
+                f"线性度 R²={r2:.3f}（{linear_level}），显著性 p={p_val:.4f}（{sig_text}）。",
+                f"在 {z_min:.0f}~{z_max:.0f} μm 范围内，预测总体变化幅度约 Δ={delta:.2f} MPa。",
+            ]
+            if std_err and std_err > 0:
+                lines.append(f"斜率标准误 {std_err:.4f} MPa/μm（拟合不确定性参考）。")
+            if advice:
+                lines.append(f"建议：{advice}。")
+            return "".join(lines)
+        except Exception:
+            return "结论生成失败：输入数据异常。"
     
     def _generate_multi_layer_comparison_charts(self, indices: List[int], comparison: dict):
         """生成多层对比图表

@@ -106,7 +106,7 @@ class TrendView(QWidget):
     def clear_comparison_results(self):
         return
 
-    def add_chart(self, fig: Figure, title: str, info_text: str | None = None):
+    def add_chart(self, fig: Figure, title: str, info_text: str | None = None, summary_text: str | None = None):
         """添加图表
         
         Args:
@@ -163,6 +163,17 @@ class TrendView(QWidget):
         canvas = FigureCanvas(fig)
         canvas.setMinimumHeight(300)
         chart_layout.addWidget(canvas)
+
+        # 图表下方的结论文本（可选）
+        if summary_text:
+            summary_label = QLabel(summary_text)
+            summary_label.setWordWrap(True)
+            summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            summary_label.setStyleSheet(
+                "color: #2c3e50; background: #f7f9fc; border: 1px solid #e8eaf0;"
+                "border-radius: 4px; padding: 10px; font-size: 12px;"
+            )
+            chart_layout.addWidget(summary_label)
         
         # 确保图表插入到“选择对比层”之前，使分组固定在底部
         if hasattr(self, 'layer_selection_group') and self.layer_selection_group:

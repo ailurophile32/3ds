@@ -139,7 +139,8 @@ class StatisticsController:
             "用于判断分布形状（是否近似正态、是否多峰）、偏度（均值与中位数位置差异），"
             "以及是否存在异常尾部。"
         )
-        self.view.add_chart(fig1, "应力分布直方图与核密度估计", info_hist)
+        summary_hist = self._build_hist_summary(valid_stress, basic_stats, distribution)
+        self.view.add_chart(fig1, "应力分布直方图与核密度估计", info_hist, summary_hist)
         
         # 2. 箱线图
         fig2 = self._create_boxplot_chart(valid_stress, basic_stats, outliers)
@@ -148,7 +149,8 @@ class StatisticsController:
             "超出须线者视为异常值（同时显示异常数量与比例）。\n"
             "用于快速比较集中趋势与离散程度，并识别离群点。"
         )
-        self.view.add_chart(fig2, "应力箱线图（异常值检测）", info_box)
+        summary_box = self._build_box_summary(valid_stress, basic_stats, outliers)
+        self.view.add_chart(fig2, "应力箱线图（异常值检测）", info_box, summary_box)
         
         # 3. Q-Q图（正态性检验）
         fig3 = self._create_qq_plot(valid_stress)
@@ -156,7 +158,8 @@ class StatisticsController:
             "用于检验应力分布与正态分布的一致性：点越贴近参考直线，越接近正态。\n"
             "系统性的S弯代表偏度或厚/薄尾；尾部明显偏离直线表示重尾/轻尾特征。"
         )
-        self.view.add_chart(fig3, "Q-Q图（正态性检验）", info_qq)
+        summary_qq = self._build_qq_summary(valid_stress, distribution)
+        self.view.add_chart(fig3, "Q-Q图（正态性检验）", info_qq, summary_qq)
         
         # 4. 累积分布图
         fig4 = self._create_cdf_plot(valid_stress, basic_stats)
@@ -165,7 +168,69 @@ class StatisticsController:
             "虚线标注Q1/Q2/Q3定位常用分位点。\n"
             "常用于评估质量阈值（如95%样本应力低于多少MPa）。"
         )
-        self.view.add_chart(fig4, "累积分布函数(CDF)", info_cdf)
+        summary_cdf = self._build_cdf_summary(valid_stress, basic_stats)
+        self.view.add_chart(fig4, "累积分布函数(CDF)", info_cdf, summary_cdf)
+
+    # --------- 结论生成（统计） ---------
+    def _build_hist_summary(self, values: np.ndarray, basic_stats: dict, distribution: dict) -> str:
+        try:
+            mean = float(basic_stats.get('mean', 0.0))
+            median = float(basic_stats.get('median', 0.0))
+            std = float(basic_stats.get('std', 0.0))
+            skew = float(basic_stats.get('skewness', 0.0))
+            kurt = float(basic_stats.get('kurtosis', 0.0))
+            shapiro_p = float(distribution.get('shapiro_p_value', 1.0))
+            normal_flag = distribution.get('is_normal_shapiro', False)
+            shape = "近似正态" if normal_flag else ("右偏" if skew>0 else ("左偏" if skew<0 else "对称"))
+            risk = "尾部厚重，需关注极端值" if kurt>3 else "尾部正常"
+            return (
+                f"结论：分布{shape}（均值 {mean:.2f} MPa，中位数 {median:.2f} MPa，"
+                f"σ={std:.2f} MPa，偏度 {skew:.2f}，峰度 {kurt:.2f}）。"
+                f"正态性检验 p={shapiro_p:.4f}，{ '未拒绝正态' if normal_flag else '拒绝正态' }；{risk}。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
+
+    def _build_box_summary(self, values: np.ndarray, basic_stats: dict, outliers: dict) -> str:
+        try:
+            q1 = float(basic_stats.get('q25', 0.0))
+            q2 = float(basic_stats.get('q50', 0.0))
+            q3 = float(basic_stats.get('q75', 0.0))
+            iqr = float(basic_stats.get('iqr', 0.0))
+            out_cnt = int(outliers.get('outlier_count', 0))
+            out_ratio = float(outliers.get('outlier_ratio', 0.0))
+            dispersion = "离散较小" if iqr < 0.2*max(abs(q2),1e-6) else ("离散中等" if iqr < 0.5*max(abs(q2),1e-6) else "离散较大")
+            return (
+                f"结论：中位数 {q2:.2f} MPa；IQR={iqr:.2f} MPa（{dispersion}）。"
+                f"检测到异常值 {out_cnt} 个（{out_ratio:.2f}%）。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
+
+    def _build_qq_summary(self, values: np.ndarray, distribution: dict) -> str:
+        try:
+            shapiro_p = float(distribution.get('shapiro_p_value', 1.0))
+            ks_p = float(distribution.get('ks_p_value', 1.0))
+            normal = (shapiro_p > 0.05) and (ks_p > 0.05)
+            return (
+                f"结论：与正态分布{ '一致' if normal else '存在偏离' }（Shapiro p={shapiro_p:.4f}，K-S p={ks_p:.4f}）。"
+                f"若偏离明显，建议采用非参数方法或进行稳健统计。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
+
+    def _build_cdf_summary(self, values: np.ndarray, basic_stats: dict) -> str:
+        try:
+            q1 = float(basic_stats.get('q25', 0.0))
+            q2 = float(basic_stats.get('q50', 0.0))
+            q3 = float(basic_stats.get('q75', 0.0))
+            p95 = float(np.percentile(values, 95)) if len(values)>0 else 0.0
+            return (
+                f"结论：50%样本≤{q2:.2f} MPa，75%样本≤{q3:.2f} MPa，95%样本≤{p95:.2f} MPa。"
+                f"如需质量门限评估，可将目标阈值与CDF读取的覆盖率对比。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
     
     def _create_histogram_chart(self, stress_values: np.ndarray, 
                                 basic_stats: dict, distribution: dict) -> Figure:
