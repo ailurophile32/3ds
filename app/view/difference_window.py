@@ -95,7 +95,7 @@ class DifferenceWindow(QDialog):
         layout.addWidget(stats_group)
 
         # 画布
-        self.figure = Figure(figsize=(6, 5), tight_layout=True)
+        self.figure = Figure(figsize=(6, 5), constrained_layout=True)
         self.canvas = FigureCanvas(self.figure)
         layout.addWidget(self.canvas, 1)
 

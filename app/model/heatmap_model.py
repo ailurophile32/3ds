@@ -1313,7 +1313,7 @@ class HeatmapModel(BaseModel):
         zi[mask] = np.nan
         
         # 创建图形
-        self.fig_2d = Figure(figsize=figsize, facecolor='white')
+        self.fig_2d = Figure(figsize=figsize, facecolor='white', constrained_layout=True)
         ax = self.fig_2d.add_subplot(111)
         
         # 确定色标卡范围 - 使用新的统一范围计算逻辑
@@ -1370,7 +1370,7 @@ class HeatmapModel(BaseModel):
             'z_depth': z_depth
         }
         
-        self.fig_2d.tight_layout()
+        
         return self.fig_2d
     
     def create_plotly_3d_heatmap(self) -> Optional[go.Figure]:

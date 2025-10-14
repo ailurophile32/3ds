@@ -173,7 +173,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(10, 6))
+        fig = Figure(figsize=(10, 6), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         z_depths = trend_data['z_depths']
@@ -195,7 +195,7 @@ class TrendController:
         ax.legend(loc='best', fontsize=10)
         ax.grid(True, alpha=0.3)
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_std_trend_chart(self, trend_data: dict) -> Figure:
@@ -207,7 +207,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(10, 6))
+        fig = Figure(figsize=(10, 6), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         z_depths = trend_data['z_depths']
@@ -241,7 +241,7 @@ class TrendController:
         ax.tick_params(axis='y', labelcolor='crimson')
         ax2.tick_params(axis='y', labelcolor='purple')
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_minmax_trend_chart(self, trend_data: dict) -> Figure:
@@ -253,7 +253,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(10, 6))
+        fig = Figure(figsize=(10, 6), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         z_depths = trend_data['z_depths']
@@ -278,7 +278,7 @@ class TrendController:
         ax.legend(loc='best', fontsize=10)
         ax.grid(True, alpha=0.3)
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_gradient_chart(self, gradient_data: dict) -> Figure:
@@ -290,7 +290,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(10, 6))
+        fig = Figure(figsize=(10, 6), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         z_depths = gradient_data['z_depths']
@@ -321,7 +321,7 @@ class TrendController:
         ax.legend(loc='best', fontsize=10)
         ax.grid(True, alpha=0.3)
         
-        fig.tight_layout()
+        
         return fig
     
     def _generate_multi_layer_comparison_charts(self, indices: List[int], comparison: dict):
@@ -357,7 +357,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(12, 7))
+        fig = Figure(figsize=(12, 7), constrained_layout=True)
         
         layers_stats = comparison['layers_stats']
         layer_names = [f"{s['file_name'][:15]}..." if len(s['file_name']) > 15 
@@ -402,7 +402,7 @@ class TrendController:
         axes[3].set_xticklabels(layer_names, rotation=45, ha='right')
         axes[3].grid(True, alpha=0.3, axis='y')
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_multi_layer_boxplot(self, indices: List[int], comparison: dict) -> Figure:
@@ -415,7 +415,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(12, 6))
+        fig = Figure(figsize=(12, 6), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         # 提取各层数据
@@ -456,7 +456,7 @@ class TrendController:
             label.set_rotation(45)
             label.set_ha('right')
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_multi_layer_histogram(self, indices: List[int], comparison: dict) -> Figure:
@@ -469,7 +469,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(12, 6))
+        fig = Figure(figsize=(12, 6), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         colors = ['steelblue', 'orange', 'green', 'red', 'purple']
@@ -493,7 +493,7 @@ class TrendController:
         ax.legend(loc='best', fontsize=9)
         ax.grid(True, alpha=0.3)
         
-        fig.tight_layout()
+        
         return fig
     
     def _show_anova_results(self, comparison: dict):
@@ -547,7 +547,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(10, 6))
+        fig = Figure(figsize=(10, 6), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         # 绘制直方图
@@ -570,7 +570,7 @@ class TrendController:
         ax.legend(loc='best', fontsize=9)
         ax.grid(True, alpha=0.3)
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_boxplot_comparison(self, stress1: np.ndarray, 
@@ -585,7 +585,7 @@ class TrendController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(10, 6))
+        fig = Figure(figsize=(10, 6), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         # 绘制箱线图
@@ -609,6 +609,6 @@ class TrendController:
         ax.set_title('两层应力统计特征对比', fontsize=12, fontweight='bold')
         ax.grid(True, alpha=0.3, axis='y')
         
-        fig.tight_layout()
+        
         return fig
 

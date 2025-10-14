@@ -161,7 +161,7 @@ class StatisticsController:
         """
         from scipy import stats
         
-        fig = Figure(figsize=(8, 5))
+        fig = Figure(figsize=(8, 5), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         # 绘制直方图
@@ -193,7 +193,7 @@ class StatisticsController:
         ax.legend(loc='best', fontsize=9)
         ax.grid(True, alpha=0.3)
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_boxplot_chart(self, stress_values: np.ndarray, 
@@ -208,7 +208,7 @@ class StatisticsController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(8, 5))
+        fig = Figure(figsize=(8, 5), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         # 绘制箱线图
@@ -243,7 +243,7 @@ class StatisticsController:
         ax.set_title('应力分布箱线图', fontsize=12, fontweight='bold')
         ax.grid(True, alpha=0.3, axis='y')
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_qq_plot(self, stress_values: np.ndarray) -> Figure:
@@ -257,7 +257,7 @@ class StatisticsController:
         """
         from scipy import stats
         
-        fig = Figure(figsize=(8, 5))
+        fig = Figure(figsize=(8, 5), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         # 生成Q-Q图数据
@@ -271,7 +271,7 @@ class StatisticsController:
                transform=ax.transAxes, va='top', fontsize=9,
                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         
-        fig.tight_layout()
+        
         return fig
     
     def _create_cdf_plot(self, stress_values: np.ndarray, basic_stats: dict) -> Figure:
@@ -284,7 +284,7 @@ class StatisticsController:
         Returns:
             Figure: matplotlib图形对象
         """
-        fig = Figure(figsize=(8, 5))
+        fig = Figure(figsize=(8, 5), constrained_layout=True)
         ax = fig.add_subplot(111)
         
         # 排序数据
@@ -309,7 +309,7 @@ class StatisticsController:
         ax.legend(loc='best', fontsize=9)
         ax.grid(True, alpha=0.3)
         
-        fig.tight_layout()
+        
         return fig
     
     def on_export_statistics(self):

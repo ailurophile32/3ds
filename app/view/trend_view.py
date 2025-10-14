@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QPushButton, QScrollArea,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QListWidget, QAbstractItemView, QListWidgetItem, QSizePolicy, QLayout,
-    QComboBox
+    QComboBox, QAbstractScrollArea
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -340,13 +340,39 @@ class TrendView(QWidget):
                         value_str = str(value)
                     table.setItem(row, col + 1, QTableWidgetItem(value_str))
             
-            table.horizontalHeader().setStretchLastSection(True)
+            # 关键：所有列等比填充，避免列被压缩导致“异常显示”
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            table.verticalHeader().setVisible(False)
+            table.setWordWrap(True)
+            table.setAlternatingRowColors(True)
+            table.setSizeAdjustPolicy(QAbstractScrollArea.AdjustToContents)
+            table.resizeRowsToContents()
+            # 保底行高避免文本不可见
+            min_row_h = 26
+            for r in range(table.rowCount()):
+                if table.rowHeight(r) < min_row_h:
+                    table.setRowHeight(r, min_row_h)
+            # 设置最小高度以完整显示内容
+            header_h = table.horizontalHeader().height()
+            rows_h = sum(table.rowHeight(r) for r in range(table.rowCount()))
+            table.setMinimumHeight(header_h + rows_h + 16)
             
         else:
             # 兼容旧的双层对比格式
             table.setColumnCount(2)
             table.setHorizontalHeaderLabels(["指标", "数值"])
-            table.horizontalHeader().setStretchLastSection(True)
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            table.verticalHeader().setVisible(False)
+            table.setWordWrap(True)
+            table.setSizeAdjustPolicy(QAbstractScrollArea.AdjustToContents)
+            table.resizeRowsToContents()
+            min_row_h = 26
+            for r in range(table.rowCount()):
+                if table.rowHeight(r) < min_row_h:
+                    table.setRowHeight(r, min_row_h)
+            header_h = table.horizontalHeader().height()
+            rows_h = sum(table.rowHeight(r) for r in range(table.rowCount()))
+            table.setMinimumHeight(header_h + rows_h + 16)
             
             # 填充旧格式数据
             metrics = [

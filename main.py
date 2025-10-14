@@ -14,6 +14,7 @@ from app import __version__
 from app.controller.heatmap_controller import HeatmapController
 from app.model.heatmap_model import HeatmapModel
 from app.view.heatmap_view import HeatmapView
+from matplotlib import rcParams
 
 
 def setup_encoding():
@@ -52,6 +53,11 @@ def setup_encoding():
 
 def run_command_line_mode(args):
     """命令行模式处理函数"""
+    # 全局图形配置：避免标题被裁剪、确保中文显示
+    rcParams['figure.constrained_layout.use'] = True
+    rcParams['axes.titlepad'] = 12
+    rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial', 'sans-serif']
+    rcParams['axes.unicode_minus'] = False
     model = HeatmapModel()
     
     # 处理所有传入的CSV文件
@@ -97,6 +103,11 @@ def run_command_line_mode(args):
 def run_gui_mode():
     """GUI模式处理函数"""
     app = QApplication(sys.argv)
+    # 全局图形配置：避免标题被裁剪、确保中文显示
+    rcParams['figure.constrained_layout.use'] = True
+    rcParams['axes.titlepad'] = 12
+    rcParams['font.sans-serif'] = ['Microsoft YaHei', 'SimHei', 'Arial', 'sans-serif']
+    rcParams['axes.unicode_minus'] = False
     
     # 设置应用程序字体
     font = app.font()
