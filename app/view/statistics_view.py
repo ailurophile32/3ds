@@ -7,11 +7,12 @@
 from typing import Dict, Any, Optional
 import numpy as np
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
     QGroupBox, QTableWidget, QTableWidgetItem,
     QComboBox, QPushButton, QScrollArea, QFrame,
-    QSplitter
+    QSplitter, QToolTip
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -310,12 +311,13 @@ class StatisticsView(QWidget):
         self.placeholder_label.setStyleSheet("color: #7f8c8d; font-size: 14px;")
         self.chart_layout.addWidget(self.placeholder_label)
     
-    def add_chart(self, fig: Figure, title: str):
+    def add_chart(self, fig: Figure, title: str, info_text: Optional[str] = None):
         """添加图表到视图
         
         Args:
             fig: matplotlib Figure对象
             title: 图表标题
+            info_text: 悬浮说明文本（可选）
         """
         # 移除占位标签（如果存在）
         if hasattr(self, 'placeholder_label') and self.placeholder_label:
@@ -329,15 +331,46 @@ class StatisticsView(QWidget):
         chart_layout = QVBoxLayout(chart_frame)
         chart_layout.setContentsMargins(8, 8, 8, 8)
         
-        # 标题
+        # 标题 + 信息按钮
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
         title_label = QLabel(title)
         title_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #2c3e50;")
-        chart_layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        if info_text:
+            info_button = QPushButton("i")
+            info_button.setFixedSize(20, 20)
+            info_button.setStyleSheet("""
+            QPushButton {
+                border: 2px solid #ccc;
+                border-radius: 10px;
+                background-color: #f8f8f8;
+                font-size: 11px;
+                font-weight: bold;
+                color: #666;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+                border-color: #999;
+                color: #333;
+            }
+            """)
+            header_layout.addWidget(info_button)
+            # 单击显示悬浮文字（气泡提示），不展开面板
+            def _show_tip():
+                global_pos = info_button.mapToGlobal(info_button.rect().bottomRight())
+                QToolTip.showText(global_pos, info_text, info_button)
+            info_button.clicked.connect(_show_tip)
+        chart_layout.addLayout(header_layout)
         
         # 图表
         canvas = FigureCanvas(fig)
         canvas.setMinimumHeight(300)
         chart_layout.addWidget(canvas)
+
+        # 不添加额外说明面板，保持界面简洁
         
         self.chart_layout.addWidget(chart_frame)
     

@@ -133,19 +133,39 @@ class StatisticsController:
         
         # 1. 直方图 + 核密度估计
         fig1 = self._create_histogram_chart(valid_stress, basic_stats, distribution)
-        self.view.add_chart(fig1, "应力分布直方图与核密度估计")
+        info_hist = (
+            "展示应力值的整体分布：蓝色为频次直方图，红线为核密度曲线，"
+            "绿色虚线为基于均值与标准差的正态分布拟合；红/橙虚线分别标注均值与中位数。\n"
+            "用于判断分布形状（是否近似正态、是否多峰）、偏度（均值与中位数位置差异），"
+            "以及是否存在异常尾部。"
+        )
+        self.view.add_chart(fig1, "应力分布直方图与核密度估计", info_hist)
         
         # 2. 箱线图
         fig2 = self._create_boxplot_chart(valid_stress, basic_stats, outliers)
-        self.view.add_chart(fig2, "应力箱线图（异常值检测）")
+        info_box = (
+            "箱体上下沿为Q1/Q3，中线为中位数Q2；须线延伸至1.5×IQR内的最远值；"
+            "超出须线者视为异常值（同时显示异常数量与比例）。\n"
+            "用于快速比较集中趋势与离散程度，并识别离群点。"
+        )
+        self.view.add_chart(fig2, "应力箱线图（异常值检测）", info_box)
         
         # 3. Q-Q图（正态性检验）
         fig3 = self._create_qq_plot(valid_stress)
-        self.view.add_chart(fig3, "Q-Q图（正态性检验）")
+        info_qq = (
+            "用于检验应力分布与正态分布的一致性：点越贴近参考直线，越接近正态。\n"
+            "系统性的S弯代表偏度或厚/薄尾；尾部明显偏离直线表示重尾/轻尾特征。"
+        )
+        self.view.add_chart(fig3, "Q-Q图（正态性检验）", info_qq)
         
         # 4. 累积分布图
         fig4 = self._create_cdf_plot(valid_stress, basic_stats)
-        self.view.add_chart(fig4, "累积分布函数(CDF)")
+        info_cdf = (
+            "横轴为应力，纵轴为累计概率P(X≤x)。任意阈值x可直接读取覆盖率；"
+            "虚线标注Q1/Q2/Q3定位常用分位点。\n"
+            "常用于评估质量阈值（如95%样本应力低于多少MPa）。"
+        )
+        self.view.add_chart(fig4, "累积分布函数(CDF)", info_cdf)
     
     def _create_histogram_chart(self, stress_values: np.ndarray, 
                                 basic_stats: dict, distribution: dict) -> Figure:

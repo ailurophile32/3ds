@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QPushButton, QScrollArea,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QListWidget, QAbstractItemView, QListWidgetItem, QSizePolicy, QLayout,
-    QComboBox, QAbstractScrollArea
+    QComboBox, QAbstractScrollArea, QToolTip
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -157,7 +157,7 @@ class DifferenceView(QWidget):
         if self.content_layout.indexOf(self.diff_group) == -1:
             self.content_layout.addWidget(self.diff_group)
 
-    def add_chart_below_selector(self, fig: Figure, title: str):
+    def add_chart_below_selector(self, fig: Figure, title: str, info_text: str | None = None):
         if hasattr(self, 'placeholder_label') and self.placeholder_label:
             self.placeholder_label.deleteLater()
             self.placeholder_label = None
@@ -168,9 +168,37 @@ class DifferenceView(QWidget):
         chart_layout = QVBoxLayout(chart_frame)
         chart_layout.setContentsMargins(8, 8, 8, 8)
 
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
         title_label = QLabel(title)
         title_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #2c3e50;")
-        chart_layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        if info_text:
+            info_button = QPushButton("i")
+            info_button.setFixedSize(20, 20)
+            info_button.setStyleSheet("""
+            QPushButton {
+                border: 2px solid #ccc;
+                border-radius: 10px;
+                background-color: #f8f8f8;
+                font-size: 11px;
+                font-weight: bold;
+                color: #666;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+                border-color: #999;
+                color: #333;
+            }
+            """)
+            header_layout.addWidget(info_button)
+            def _show_tip():
+                global_pos = info_button.mapToGlobal(info_button.rect().bottomRight())
+                QToolTip.showText(global_pos, info_text, info_button)
+            info_button.clicked.connect(_show_tip)
+        chart_layout.addLayout(header_layout)
 
         canvas = FigureCanvas(fig)
         canvas.setMinimumHeight(300)

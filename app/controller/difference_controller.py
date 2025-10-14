@@ -77,14 +77,23 @@ class DifferenceController:
     # -------- 绘图 --------
     def _generate_multi_layer_charts(self, indices: List[int], comparison: dict):
         fig1 = self._create_multi_layer_bar_chart(comparison)
-        self.view.add_chart_below_selector(fig1, f"多层统计指标对比 ({len(indices)}层)")
+        self.view.add_chart_below_selector(
+            fig1, f"多层统计指标对比 ({len(indices)}层)",
+            "分别对比各层的均值、标准差、变异系数与极值范围，定位差异显著的层。"
+        )
 
         fig2 = self._create_multi_layer_boxplot(indices)
-        self.view.add_chart_below_selector(fig2, "多层应力分布对比")
+        self.view.add_chart_below_selector(
+            fig2, "多层应力分布对比",
+            "多层箱线图并列显示，观察多层的分布、离群点与中位数差异。"
+        )
 
         if len(indices) <= 5:
             fig3 = self._create_multi_layer_histogram(indices)
-            self.view.add_chart_below_selector(fig3, "多层应力分布直方图")
+            self.view.add_chart_below_selector(
+                fig3, "多层应力分布直方图",
+                "各层直方图以不同颜色叠加，便于比较整体分布形状与位置差异。"
+            )
 
     def _create_multi_layer_bar_chart(self, comparison: dict) -> Figure:
         fig = Figure(figsize=(12, 7), constrained_layout=True)
@@ -154,8 +163,14 @@ class DifferenceController:
             return
         s1 = data1['Value'].values; s2 = data2['Value'].values
         v1 = s1[~np.isnan(s1)]; v2 = s2[~np.isnan(s2)]
-        self.view.add_chart_below_selector(self._create_distribution_comparison(v1, v2, comparison), "应力分布对比")
-        self.view.add_chart_below_selector(self._create_boxplot_comparison(v1, v2, comparison), "统计特征对比")
+        self.view.add_chart_below_selector(
+            self._create_distribution_comparison(v1, v2, comparison), "应力分布对比",
+            "两层分布直方图叠加，虚线为各自均值；用于直接比较总体分布与均值差异。"
+        )
+        self.view.add_chart_below_selector(
+            self._create_boxplot_comparison(v1, v2, comparison), "统计特征对比",
+            "两层箱线图并列展示Q1/Q2/Q3与异常值，快速比较离散程度与集中趋势。"
+        )
 
     def _create_distribution_comparison(self, s1: np.ndarray, s2: np.ndarray, comparison: dict) -> Figure:
         fig = Figure(figsize=(10, 6), constrained_layout=True)

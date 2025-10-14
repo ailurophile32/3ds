@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QGroupBox, QPushButton, QScrollArea,
     QFrame, QTableWidget, QTableWidgetItem, QHeaderView,
     QListWidget, QAbstractItemView, QListWidgetItem, QSizePolicy, QLayout,
-    QComboBox, QAbstractScrollArea
+    QComboBox, QAbstractScrollArea, QToolTip
 )
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -106,12 +106,13 @@ class TrendView(QWidget):
     def clear_comparison_results(self):
         return
 
-    def add_chart(self, fig: Figure, title: str):
+    def add_chart(self, fig: Figure, title: str, info_text: str | None = None):
         """添加图表
         
         Args:
             fig: matplotlib Figure对象
             title: 图表标题
+            info_text: 点击“i”显示的说明文字
         """
         # 移除占位标签（如果存在）
         if hasattr(self, 'placeholder_label') and self.placeholder_label:
@@ -125,10 +126,38 @@ class TrendView(QWidget):
         chart_layout = QVBoxLayout(chart_frame)
         chart_layout.setContentsMargins(8, 8, 8, 8)
         
-        # 标题
+        # 标题 + 信息按钮
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
         title_label = QLabel(title)
         title_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #2c3e50;")
-        chart_layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        if info_text:
+            info_button = QPushButton("i")
+            info_button.setFixedSize(20, 20)
+            info_button.setStyleSheet("""
+            QPushButton {
+                border: 2px solid #ccc;
+                border-radius: 10px;
+                background-color: #f8f8f8;
+                font-size: 11px;
+                font-weight: bold;
+                color: #666;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+                border-color: #999;
+                color: #333;
+            }
+            """)
+            header_layout.addWidget(info_button)
+            def _show_tip():
+                global_pos = info_button.mapToGlobal(info_button.rect().bottomRight())
+                QToolTip.showText(global_pos, info_text, info_button)
+            info_button.clicked.connect(_show_tip)
+        chart_layout.addLayout(header_layout)
         
         # 图表
         canvas = FigureCanvas(fig)
@@ -145,9 +174,9 @@ class TrendView(QWidget):
         else:
             self.content_layout.addWidget(chart_frame)
 
-    def add_chart_below_selector(self, fig: Figure, title: str):
+    def add_chart_below_selector(self, fig: Figure, title: str, info_text: str | None = None):
         # 兼容老接口，趋势页不再使用该方法
-        self.add_chart(fig, title)
+        self.add_chart(fig, title, info_text)
     
     def add_comparison_table(self, comparison_data: Dict[str, Any]):
         """添加对比表格

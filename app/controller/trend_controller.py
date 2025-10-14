@@ -148,21 +148,37 @@ class TrendController:
         """
         # 1. Z轴趋势图（均值、中位数）
         fig1 = self._create_z_trend_chart(trend_data)
-        self.view.add_chart(fig1, "Z轴应力趋势分析")
+        info1 = (
+            "展示不同Z深度的应力均值与中位数的变化趋势，"
+            "用于观察整体水平随深度的上升/下降及均值-中位数差异。"
+        )
+        self.view.add_chart(fig1, "Z轴应力趋势分析", info1)
         
         # 2. 标准差趋势图
         fig2 = self._create_std_trend_chart(trend_data)
-        self.view.add_chart(fig2, "Z轴标准差趋势")
+        info2 = (
+            "标准差反映离散程度；变异系数(标准差/均值)用于跨层对比相对波动，"
+            "两轴合并便于同时评估绝对波动与相对波动。"
+        )
+        self.view.add_chart(fig2, "Z轴标准差趋势", info2)
         
         # 3. 极值趋势图
         fig3 = self._create_minmax_trend_chart(trend_data)
-        self.view.add_chart(fig3, "Z轴极值趋势")
+        info3 = (
+            "显示各层最小/最大值与均值，灰色区域为极差；"
+            "用于识别是否存在异常层或极端值随深度的系统性变化。"
+        )
+        self.view.add_chart(fig3, "Z轴极值趋势", info3)
         
         # 4. 梯度分析图
         gradient_data = self.model.calculate_gradient()
         if gradient_data:
             fig4 = self._create_gradient_chart(gradient_data)
-            self.view.add_chart(fig4, "Z轴应力梯度分析")
+            info4 = (
+                "对均值-深度进行线性拟合得到斜率与R²；斜率表示梯度强弱，"
+                "R²表示线性解释度，用于判断是否存在线性梯度与其显著性。"
+            )
+            self.view.add_chart(fig4, "Z轴应力梯度分析", info4)
     
     def _create_z_trend_chart(self, trend_data: dict) -> Figure:
         """创建Z轴趋势图
@@ -333,16 +349,25 @@ class TrendController:
         """
         # 1. 多层统计指标对比图（柱状图）
         fig1 = self._create_multi_layer_bar_chart(comparison)
-        self.view.add_chart_below_selector(fig1, f"多层统计指标对比 ({len(indices)}层)")
+        self.view.add_chart_below_selector(
+            fig1, f"多层统计指标对比 ({len(indices)}层)",
+            "分别对比各层的均值、标准差、变异系数与极值范围，定位差异显著的层。"
+        )
         
         # 2. 多层分布对比（箱线图）
         fig2 = self._create_multi_layer_boxplot(indices, comparison)
-        self.view.add_chart_below_selector(fig2, "多层应力分布对比")
+        self.view.add_chart_below_selector(
+            fig2, "多层应力分布对比",
+            "多层箱线图并列显示，观察多层的分布、离群点与中位数差异。"
+        )
         
         # 3. 多层分布对比（叠加直方图）
         if len(indices) <= 5:  # 只在层数不太多时显示
             fig3 = self._create_multi_layer_histogram(indices, comparison)
-            self.view.add_chart_below_selector(fig3, "多层应力分布直方图")
+            self.view.add_chart_below_selector(
+                fig3, "多层应力分布直方图",
+                "各层直方图以不同颜色叠加，便于比较整体分布形状与位置差异。"
+            )
         
         # 4. ANOVA分析结果表格（如果有）
         if comparison.get('anova_significant', False):
@@ -529,11 +554,17 @@ class TrendController:
         
         # 1. 分布对比直方图
         fig1 = self._create_distribution_comparison(valid_stress1, valid_stress2, comparison)
-        self.view.add_chart_below_selector(fig1, "应力分布对比")
+        self.view.add_chart_below_selector(
+            fig1, "应力分布对比",
+            "两层分布直方图叠加，虚线为各自均值；用于直接比较总体分布与均值差异。"
+        )
         
         # 2. 箱线图对比
         fig2 = self._create_boxplot_comparison(valid_stress1, valid_stress2, comparison)
-        self.view.add_chart_below_selector(fig2, "统计特征对比")
+        self.view.add_chart_below_selector(
+            fig2, "统计特征对比",
+            "两层箱线图并列展示Q1/Q2/Q3与异常值，快速比较离散程度与集中趋势。"
+        )
     
     def _create_distribution_comparison(self, stress1: np.ndarray, 
                                        stress2: np.ndarray, comparison: dict) -> Figure:
