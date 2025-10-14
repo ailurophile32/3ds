@@ -8,6 +8,7 @@ from typing import List
 import numpy as np
 from PySide6.QtWidgets import QMessageBox
 from matplotlib.figure import Figure
+from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
 
 from app.view.difference_view import DifferenceView
 from app.model.trend_model import TrendModel
@@ -60,15 +61,17 @@ class DifferenceController:
             if self._heatmap_model is None:
                 QMessageBox.warning(self.view, "错误", "模型未就绪，无法计算差分")
                 return
+            # 计算差分栅格
             xi, yi, diff = self._heatmap_model.calculate_difference_map(minuend_index, subtrahend_index)
-            win = DifferenceWindow(
-                parent=self.view,
-                xi_grid=xi,
-                yi_grid=yi,
-                diff_values=diff,
-                title="差分云图 (被减数 - 减数)"
-            )
-            win.show()
+            # 生成内嵌差分图
+            fig = self._create_difference_heatmap(xi, yi, diff)
+            info = "差分为被减数-减数；色标 0 为白，红/蓝分别代表正/负差。"
+            summary = self._build_diff_summary(diff)
+            layer1_name = self.model.data_sets[minuend_index][2]
+            layer2_name = self.model.data_sets[subtrahend_index][2]
+            title = f"差分云图：{layer1_name} - {layer2_name}"
+            # 位置：放在差分控件组之后
+            self.view.add_chart_after_diff_controls(fig, title, info, summary)
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -201,6 +204,45 @@ class DifferenceController:
             ax.text(1.5, y_max * 1.05, f"p={comparison['p_value']:.4f} *", ha='center', fontsize=10, color='red', fontweight='bold')
         ax.set_ylabel('应力 (MPa)'); ax.set_title('两层应力统计特征对比'); ax.grid(True, alpha=0.3, axis='y')
         return fig
+
+    # -------- 差分云图（内嵌） --------
+    @staticmethod
+    def _diverging_cmap() -> LinearSegmentedColormap:
+        # 蓝-白-红，确保 0 为白色
+        return LinearSegmentedColormap.from_list("diff", ["#2166ac", "#ffffff", "#b2182b"], N=256)
+
+    def _create_difference_heatmap(self, xi, yi, diff) -> Figure:
+        fig = Figure(figsize=(10, 6), constrained_layout=True)
+        ax = fig.add_subplot(111)
+        ax.set_title("差分云图 (0 为白)")
+        ax.set_xlabel("X (μm)")
+        ax.set_ylabel("Y (μm)")
+        norm = TwoSlopeNorm(vmin=float(np.nanmin(diff)), vcenter=0.0, vmax=float(np.nanmax(diff)))
+        cmap = self._diverging_cmap()
+        pcm = ax.pcolormesh(xi, yi, diff, cmap=cmap, norm=norm, shading="auto")
+        cbar = fig.colorbar(pcm, ax=ax)
+        cbar.set_label("差分 (MPa)")
+        ax.set_aspect("equal", adjustable="box")
+        return fig
+
+    def _build_diff_summary(self, diff) -> str:
+        try:
+            arr = np.array(diff)
+            valid = arr[~np.isnan(arr)]
+            if valid.size == 0:
+                return "结论：差分无有效数据。"
+            mean = float(np.mean(valid))
+            std = float(np.std(valid, ddof=1)) if valid.size > 1 else 0.0
+            vmin = float(np.min(valid)); vmax = float(np.max(valid))
+            pos_ratio = float(np.mean(valid > 0)) * 100.0
+            neg_ratio = 100.0 - pos_ratio
+            direction = "整体偏正" if mean > 0 else ("整体偏负" if mean < 0 else "整体接近零")
+            return (
+                f"结论：{direction}（均值 {mean:.2f} MPa，σ={std:.2f} MPa），"
+                f"范围 [{vmin:.2f}, {vmax:.2f}] MPa；正/负区域 {pos_ratio:.1f}%/{neg_ratio:.1f}%。"
+            )
+        except Exception:
+            return "结论生成失败：输入数据异常。"
 
     # -------- 结论生成（差分对比） --------
     def _build_pair_dist_summary(self, v1: np.ndarray, v2: np.ndarray, cmp: dict) -> str:

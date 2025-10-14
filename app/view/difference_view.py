@@ -224,6 +224,73 @@ class DifferenceView(QWidget):
         else:
             self.content_layout.addWidget(chart_frame)
 
+    def add_chart_after_diff_controls(self, fig: Figure, title: str, info_text: str | None = None, summary_text: str | None = None):
+        if hasattr(self, 'placeholder_label') and self.placeholder_label:
+            self.placeholder_label.deleteLater()
+            self.placeholder_label = None
+
+        chart_frame = QFrame()
+        chart_frame.setFrameStyle(QFrame.Box)
+        chart_frame.setStyleSheet("QFrame { border: 1px solid #ddd; border-radius: 4px; background: white; }")
+        chart_layout = QVBoxLayout(chart_frame)
+        chart_layout.setContentsMargins(8, 8, 8, 8)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #2c3e50;")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        if info_text:
+            info_button = QPushButton("i")
+            info_button.setFixedSize(20, 20)
+            info_button.setStyleSheet("""
+            QPushButton {
+                border: 2px solid #ccc;
+                border-radius: 10px;
+                background-color: #f8f8f8;
+                font-size: 11px;
+                font-weight: bold;
+                color: #666;
+                text-align: center;
+            }
+            QPushButton:hover {
+                background-color: #e8e8e8;
+                border-color: #999;
+                color: #333;
+            }
+            """)
+            header_layout.addWidget(info_button)
+            def _show_tip():
+                global_pos = info_button.mapToGlobal(info_button.rect().bottomRight())
+                QToolTip.showText(global_pos, info_text, info_button)
+            info_button.clicked.connect(_show_tip)
+        chart_layout.addLayout(header_layout)
+
+        canvas = FigureCanvas(fig)
+        canvas.setMinimumHeight(300)
+        chart_layout.addWidget(canvas)
+
+        if summary_text:
+            summary_label = QLabel(summary_text)
+            summary_label.setWordWrap(True)
+            summary_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            summary_label.setStyleSheet(
+                "color: #2c3e50; background: #f7f9fc; border: 1px solid #e8eaf0;"
+                "border-radius: 4px; padding: 10px; font-size: 12px;"
+            )
+            chart_layout.addWidget(summary_label)
+
+        # 放在差分控件组之后（最后）
+        if hasattr(self, 'diff_group') and self.diff_group:
+            insert_index = self.content_layout.indexOf(self.diff_group)
+            if insert_index == -1:
+                self.content_layout.addWidget(chart_frame)
+            else:
+                self.content_layout.insertWidget(insert_index + 1, chart_frame)
+        else:
+            self.content_layout.addWidget(chart_frame)
+
     def add_comparison_table(self, comparison_data: Dict[str, Any]):
         if hasattr(self, 'placeholder_label') and self.placeholder_label:
             self.placeholder_label.deleteLater()
