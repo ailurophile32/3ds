@@ -439,9 +439,14 @@ class HeatmapView(BaseView):
         # === 标签页3: 趋势对比 ===
         from app.view.trend_view import TrendView
         self.trend_view = TrendView()
-        self.tab_widget.addTab(self.trend_view, "趋势对比")
+        self.tab_widget.addTab(self.trend_view, "趋势分析")
 
-        # === 标签页4: 梯度分析 ===
+        # === 标签页4: 差分对比 ===
+        from app.view.difference_view import DifferenceView
+        self.difference_view = DifferenceView()
+        self.tab_widget.addTab(self.difference_view, "差分对比")
+
+        # === 标签页5: 梯度分析 ===
         gradient_tab = QWidget()
         gradient_tab_layout = QVBoxLayout(gradient_tab)
         placeholder_label_3 = QLabel("梯度分析功能即将推出...")

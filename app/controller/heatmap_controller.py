@@ -13,6 +13,7 @@ from app.model.statistics_model import StatisticsModel
 from app.model.trend_model import TrendModel
 from app.controller.statistics_controller import StatisticsController
 from app.controller.trend_controller import TrendController
+from app.controller.difference_controller import DifferenceController
 from app.utils.widgets import PerformanceSettingsDialog
 from app.view.heatmap_view import HeatmapView
 
@@ -44,6 +45,13 @@ class HeatmapController(BaseController):
             heatmap_model=self.model,
             parent=self.view
         )
+        # 初始化差分对比模块
+        self.difference_controller = DifferenceController(
+            self.trend_model,
+            self.view.difference_view,
+            heatmap_model=self.model,
+            parent=self.view
+        )
         
         self.init_callbacks()
     
@@ -67,6 +75,8 @@ class HeatmapController(BaseController):
             
             # 同步更新趋势对比模块
             self.trend_controller.set_data_sets(self.model.data_sets)
+            # 同步更新差分对比模块
+            self.difference_controller.set_data_sets(self.model.data_sets)
             
             # 实现新的数据加载默认行为逻辑
             self.on_data_loaded()
@@ -88,6 +98,8 @@ class HeatmapController(BaseController):
             
             # 同步更新趋势对比模块
             self.trend_controller.set_data_sets(self.model.data_sets)
+            # 同步更新差分对比模块
+            self.difference_controller.set_data_sets(self.model.data_sets)
             
             # 更新数据范围显示
             self.update_data_range_display()
@@ -108,6 +120,13 @@ class HeatmapController(BaseController):
         elif event_type == 'colormap_changed':
             # 色标已变更，可能需要重新生成图形
             self.view.update_status("色标已变更")
+        elif event_type == 'load_error':
+            # 明确显示底层错误信息
+            try:
+                msg = str(data)
+            except Exception:
+                msg = "加载失败"
+            self.view.message_handler.show_error('错误', msg)
     
     def init_callbacks(self):
         """初始化视图回调函数"""

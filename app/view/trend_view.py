@@ -59,59 +59,9 @@ class TrendView(QWidget):
         self.placeholder_label.setStyleSheet("color: #7f8c8d; font-size: 14px;")
         self.content_layout.addWidget(self.placeholder_label)
         
-        # ------- 重新构建并添加“选择对比层”分组至内容底部 -------
-        self.layer_selection_group = QGroupBox("选择对比层")
-        self.layer_selection_group.setFlat(True)
-        self.layer_selection_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.layer_selection_group.setStyleSheet(
-            """
-            QGroupBox { padding-top: 6px; margin-top: 2px; }
-            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0px 2px; }
-            """
-        )
-        layer_selection_layout = QVBoxLayout(self.layer_selection_group)
-        layer_selection_layout.setContentsMargins(8, 10, 8, 8)
-        layer_selection_layout.setSpacing(4)
-        layer_selection_layout.setSizeConstraint(QLayout.SetMinimumSize)
-
-        tools_bar = QHBoxLayout()
-        self.select_all_button = QPushButton("全选")
-        self.select_all_button.clicked.connect(self._on_select_all)
-        tools_bar.addWidget(self.select_all_button)
-        self.invert_selection_button = QPushButton("反选")
-        self.invert_selection_button.clicked.connect(self._on_invert_selection)
-        tools_bar.addWidget(self.invert_selection_button)
-        self.deselect_all_button = QPushButton("清空")
-        self.deselect_all_button.clicked.connect(self._on_deselect_all)
-        tools_bar.addWidget(self.deselect_all_button)
-        self.selection_count_label = QLabel("已选 0/0")
-        self.selection_count_label.setStyleSheet("color:#7f8c8d;")
-        tools_bar.addWidget(self.selection_count_label)
-        tools_bar.addStretch()
-        layer_selection_layout.addLayout(tools_bar)
-
-        self.layer_list = QListWidget()
-        self.layer_list.setSelectionMode(QAbstractItemView.NoSelection)
-        self.layer_list.setMinimumHeight(72)
-        self.layer_list.setMaximumHeight(140)
-        self.layer_list.setStyleSheet("QListWidget { padding: 0px; margin: 0px; }")
-        self.layer_list.itemChanged.connect(self._on_item_changed)
-        layer_selection_layout.addWidget(self.layer_list)
-
-        action_bar = QHBoxLayout()
-        action_bar.addStretch()
-        self.compare_button = QPushButton("开始多层对比")
-        self.compare_button.setObjectName("PrimaryButton")
-        self.compare_button.clicked.connect(self._on_compare_clicked)
-        self.compare_button.setEnabled(False)
-        self.compare_button.setCursor(Qt.PointingHandCursor)
-        self.compare_button.setStyleSheet(
-            "#PrimaryButton { background-color: #2d7ff9; color: #ffffff; border: 1px solid #1b66c9; border-radius: 4px; padding: 6px 12px; font-weight: bold; }"
-            "#PrimaryButton:hover:!disabled { background-color: #256de5; }"
-            "#PrimaryButton:pressed:!disabled { background-color: #1f5dc4; }"
-            "#PrimaryButton:disabled { background-color: #e0e0e0; color: #8c8c8c; border-color: #cccccc; }"
-        )
-        action_bar.addWidget(self.compare_button)
+        # 趋势页仅保留刷新按钮，不再包含对比与差分控件
+        toolbar = QHBoxLayout()
+        toolbar.addStretch()
         self.refresh_button = QPushButton("刷新趋势分析")
         self.refresh_button.setObjectName("SuccessButton")
         self.refresh_button.clicked.connect(self._on_refresh_clicked)
@@ -122,31 +72,8 @@ class TrendView(QWidget):
             "#SuccessButton:pressed:!disabled { background-color: #1a7a44; }"
             "#SuccessButton:disabled { background-color: #e0e0e0; color: #8c8c8c; border-color: #cccccc; }"
         )
-        action_bar.addWidget(self.refresh_button)
-        layer_selection_layout.addLayout(action_bar)
-
-        self.content_layout.addWidget(self.layer_selection_group)
-
-        # ------- 差分云图控制区（位于选择分组下方） -------
-        self.diff_group = QGroupBox("差分云图")
-        self.diff_group.setFlat(True)
-        diff_layout = QHBoxLayout(self.diff_group)
-        diff_layout.setContentsMargins(8, 8, 8, 8)
-
-        self.diff_minuend_combo = QComboBox()
-        self.diff_subtrahend_combo = QComboBox()
-        self.diff_button = QPushButton("计算差分")
-        self.diff_button.setEnabled(False)
-        self.diff_button.clicked.connect(self._on_calculate_difference_clicked)
-
-        diff_layout.addWidget(QLabel("被减数:"))
-        diff_layout.addWidget(self.diff_minuend_combo)
-        diff_layout.addWidget(QLabel("减数:"))
-        diff_layout.addWidget(self.diff_subtrahend_combo)
-        diff_layout.addStretch()
-        diff_layout.addWidget(self.diff_button)
-
-        self.content_layout.addWidget(self.diff_group)
+        toolbar.addWidget(self.refresh_button)
+        self.content_layout.addLayout(toolbar)
         
         scroll_area.setWidget(content_widget)
         main_layout.addWidget(scroll_area)
@@ -157,62 +84,27 @@ class TrendView(QWidget):
         Args:
             datasets: 数据集列表 [(data, z_depth, file_name), ...]
         """
-        # 存储数据并初始化选中集合（默认全选以便直接对比）
+        # 趋势页仅记录数据集，不再维护对比/差分相关UI
         self._datasets = datasets or []
-        if len(self._datasets) >= 2:
-            self._checked_indices = set(range(len(self._datasets)))
-        else:
-            self._checked_indices = set()
-        self._refresh_layer_items()
-        self._update_compare_button_state()
-        # 同步差分选择器
-        self._populate_diff_controls()
     
     def clear_content(self):
         """清除所有内容"""
-        # 保留“选择对比层”和“差分云图”分组，只清除其他内容
+        # 趋势页只清理内容即可
         for i in reversed(range(self.content_layout.count())):
             item = self.content_layout.itemAt(i)
             widget = item.widget()
             if widget:
-                keep_layer_selector = hasattr(self, 'layer_selection_group') and widget is self.layer_selection_group
-                keep_diff_group = hasattr(self, 'diff_group') and widget is self.diff_group
-                if not keep_layer_selector and not keep_diff_group:
-                    widget.setParent(None)
-                    widget.deleteLater()
+                widget.setParent(None)
+                widget.deleteLater()
         
         # 重新添加占位标签（放在选择分组之前）
         self.placeholder_label = QLabel("请加载多层数据以查看趋势对比分析")
         self.placeholder_label.setAlignment(Qt.AlignCenter)
         self.placeholder_label.setStyleSheet("color: #7f8c8d; font-size: 14px;")
-        if hasattr(self, 'layer_selection_group') and self.layer_selection_group:
-            insert_index = self.content_layout.indexOf(self.layer_selection_group)
-            if insert_index == -1:
-                self.content_layout.addWidget(self.placeholder_label)
-            else:
-                self.content_layout.insertWidget(insert_index, self.placeholder_label)
-        else:
-            self.content_layout.addWidget(self.placeholder_label)
+        self.content_layout.addWidget(self.placeholder_label)
     
     def clear_comparison_results(self):
-        """仅清除选择分组下方的对比结果部件，保留趋势分析图与选择分组。
-        用于用户切换对比层时的局部刷新。
-        """
-        if not hasattr(self, 'layer_selection_group') or not self.layer_selection_group:
-            return
-        selector_index = self.content_layout.indexOf(self.layer_selection_group)
-        # 删除选择分组之后的所有部件
-        for i in reversed(range(self.content_layout.count())):
-            if i > selector_index:
-                item = self.content_layout.itemAt(i)
-                widget = item.widget()
-                if widget:
-                    widget.setParent(None)
-                    widget.deleteLater()
-        # 重新确保差分分组存在于底部
-        if hasattr(self, 'diff_group') and self.diff_group:
-            if self.content_layout.indexOf(self.diff_group) == -1:
-                self.content_layout.addWidget(self.diff_group)
+        return
 
     def add_chart(self, fig: Figure, title: str):
         """添加图表
@@ -254,37 +146,8 @@ class TrendView(QWidget):
             self.content_layout.addWidget(chart_frame)
 
     def add_chart_below_selector(self, fig: Figure, title: str):
-        """在选择对比层分组之后添加图表（用于对比类图表）
-        
-        这样趋势分析图保持在分组之上，而对比结果图表固定出现在分组之下。
-        """
-        # 移除占位标签（如果存在）
-        if hasattr(self, 'placeholder_label') and self.placeholder_label:
-            self.placeholder_label.deleteLater()
-            self.placeholder_label = None
-        
-        chart_frame = QFrame()
-        chart_frame.setFrameStyle(QFrame.Box)
-        chart_frame.setStyleSheet("QFrame { border: 1px solid #ddd; border-radius: 4px; background: white; }")
-        chart_layout = QVBoxLayout(chart_frame)
-        chart_layout.setContentsMargins(8, 8, 8, 8)
-        
-        title_label = QLabel(title)
-        title_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #2c3e50;")
-        chart_layout.addWidget(title_label)
-        
-        canvas = FigureCanvas(fig)
-        canvas.setMinimumHeight(300)
-        chart_layout.addWidget(canvas)
-        
-        if hasattr(self, 'layer_selection_group') and self.layer_selection_group:
-            insert_index = self.content_layout.indexOf(self.layer_selection_group)
-            if insert_index == -1:
-                self.content_layout.addWidget(chart_frame)
-            else:
-                self.content_layout.insertWidget(insert_index + 1, chart_frame)
-        else:
-            self.content_layout.addWidget(chart_frame)
+        # 兼容老接口，趋势页不再使用该方法
+        self.add_chart(fig, title)
     
     def add_comparison_table(self, comparison_data: Dict[str, Any]):
         """添加对比表格
@@ -416,9 +279,8 @@ class TrendView(QWidget):
         table.setAlternatingRowColors(True)
         
         table_layout.addWidget(table)
-        # 对比表格放在“选择对比层”之后
-        insert_index = self.content_layout.indexOf(self.layer_selection_group) + 1
-        self.content_layout.insertWidget(insert_index, table_frame)
+        # 趋势页直接追加表格
+        self.content_layout.addWidget(table_frame)
     
     def add_anomaly_table(self, anomalies: List[Dict[str, Any]]):
         """添加异常层表格
@@ -471,51 +333,22 @@ class TrendView(QWidget):
             self.content_layout.addWidget(table_frame)
     
     def _on_select_all(self):
-        """全选按钮事件（将所有层勾选）"""
-        self._set_all_items_checked(True)
-        self._update_compare_button_state()
-    
+        return
+
     def _on_deselect_all(self):
-        """清空按钮事件（取消所有勾选）"""
-        self._set_all_items_checked(False)
-        self._update_compare_button_state()
-    
+        return
+
     def _on_compare_clicked(self):
-        """对比按钮点击事件"""
-        if self.on_compare_layers:
-            # 基于勾选状态收集索引
-            indices: List[int] = []
-            for row in range(self.layer_list.count()):
-                item = self.layer_list.item(row)
-                if item.checkState() == Qt.Checked:
-                    indices.append(item.data(Qt.UserRole))
-            if len(indices) < 2:
-                from PySide6.QtWidgets import QMessageBox
-                QMessageBox.warning(self, "提示", "请至少勾选2个层进行对比")
-                return
-            indices.sort()
-            self.on_compare_layers(indices)
+        return
 
     def _on_item_changed(self, _item: QListWidgetItem):
-        """列表项勾选状态变化时更新按钮状态"""
-        # 同步内部勾选集合
-        self._sync_checked_set_from_view()
-        self._update_compare_button_state()
-        self._update_selection_count_label()
+        return
 
     def _update_compare_button_state(self):
-        """根据勾选数量启用/禁用对比按钮"""
-        checked_count = len(self._checked_indices)
-        self.compare_button.setEnabled(checked_count >= 2)
+        return
 
     def _set_all_items_checked(self, checked: bool):
-        """批量设置所有项为勾选/未勾选"""
-        if checked:
-            self._checked_indices = set(range(len(self._datasets)))
-        else:
-            self._checked_indices = set()
-        self._refresh_layer_items()
-        self._update_selection_count_label()
+        return
     
     def _on_refresh_clicked(self):
         """刷新按钮点击事件"""
@@ -523,71 +356,24 @@ class TrendView(QWidget):
             self.on_refresh_trend()
 
     def _populate_diff_controls(self):
-        """根据当前数据集填充差分选择器"""
-        try:
-            self.diff_minuend_combo.blockSignals(True)
-            self.diff_subtrahend_combo.blockSignals(True)
-            self.diff_minuend_combo.clear()
-            self.diff_subtrahend_combo.clear()
-            for i, (_data, z_depth, file_name) in enumerate(self._datasets):
-                label = f"{file_name} (Z={z_depth}μm)"
-                self.diff_minuend_combo.addItem(label, i)
-                self.diff_subtrahend_combo.addItem(label, i)
-            self.diff_button.setEnabled(len(self._datasets) >= 2)
-        finally:
-            self.diff_minuend_combo.blockSignals(False)
-            self.diff_subtrahend_combo.blockSignals(False)
+        return
 
     def _on_calculate_difference_clicked(self):
-        """差分按钮点击事件"""
-        if not self.on_calculate_difference:
-            return
-        idx_a = self.diff_minuend_combo.currentData()
-        idx_b = self.diff_subtrahend_combo.currentData()
-        if idx_a is None or idx_b is None:
-            return
-        if idx_a == idx_b:
-            from PySide6.QtWidgets import QMessageBox
-            QMessageBox.warning(self, "提示", "请选择两个不同的层进行差分")
-            return
-        self.on_calculate_difference(int(idx_a), int(idx_b))
+        return
 
     # -------- 布局工具栏相关逻辑 --------
     def _on_invert_selection(self):
-        all_indices = set(range(len(self._datasets)))
-        self._checked_indices = all_indices.difference(self._checked_indices)
-        self._refresh_layer_items()
-        self._update_selection_count_label()
+        return
 
     def _update_selection_count_label(self):
-        self.selection_count_label.setText(f"已选 {len(self._checked_indices)}/{len(self._datasets)}")
+        return
 
     def _sync_checked_set_from_view(self):
-        # 根据界面项勾选状态回写到集合
-        checked = set()
-        for row in range(self.layer_list.count()):
-            item = self.layer_list.item(row)
-            original_index = item.data(Qt.UserRole)
-            if item.checkState() == Qt.Checked:
-                checked.add(original_index)
-        self._checked_indices = checked
+        return
 
     def _filtered_sorted_indices(self) -> List[int]:
-        # 直接返回原始顺序
         return list(range(len(self._datasets)))
 
     def _refresh_layer_items(self):
-        # 根据过滤/排序重新渲染列表，但勾选集合保持不变
-        self.layer_list.blockSignals(True)
-        self.layer_list.clear()
-        for i in self._filtered_sorted_indices():
-            _data, z_depth, file_name = self._datasets[i]
-            label = f"{file_name} (Z={z_depth}μm)"
-            item = QListWidgetItem(label)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-            item.setCheckState(Qt.Checked if i in self._checked_indices else Qt.Unchecked)
-            item.setData(Qt.UserRole, i)
-            self.layer_list.addItem(item)
-        self.layer_list.blockSignals(False)
-        self._update_compare_button_state()
+        return
 

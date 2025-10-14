@@ -597,16 +597,23 @@ class HeatmapModel(BaseModel):
         # 先精确匹配
         x_col = find_exact({'x'}) or find_startswith({'x'})
         y_col = find_exact({'y'}) or find_startswith({'y'})
-        v_col = find_exact({'value', 'stress'})
+        v_col = find_exact({'value', 'stress', 'intensity'})
         if v_col is None:
             # 再模糊包含匹配
             for k, orig in norm_map.items():
-                if ('value' in k) or ('stress' in k):
+                if ('value' in k) or ('stress' in k) or ('intensity' in k) or ('inten' in k):
                     v_col = orig
                     break
         
         if x_col is None or y_col is None or v_col is None:
-            raise ValueError(f"无法识别列名，需包含 x, y, value(或stress)，实际列: {list(df.columns)}")
+            # 兜底：尝试用前三个数值型列推断为 X/Y/Value
+            numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+            if len(numeric_cols) >= 3:
+                x_col = x_col or numeric_cols[0]
+                y_col = y_col or numeric_cols[1]
+                v_col = v_col or numeric_cols[2]
+            else:
+                raise ValueError(f"无法识别列名，需包含 x, y, value(或stress/intensity)，实际列: {list(df.columns)}")
         
         std = df[[x_col, y_col, v_col]].copy()
         std.columns = ['X', 'Y', 'Value']
