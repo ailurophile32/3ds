@@ -418,115 +418,386 @@ class StatisticsController:
         return fig
     
     def on_export_statistics(self):
-        """生成PDF综合报告：包含2D热力图、3D图、统计/趋势/对比图表与结论"""
+        """导出PDF报告（A4纵向），内容为2D热力图，4图/页固定布局，从第一页开始展示数据。"""
         try:
             # 选择保存路径
             file_path, _ = QFileDialog.getSaveFileName(
-                self.view, "生成报告", "SiC_应力分析报告.pdf", "PDF 文件 (*.pdf)"
+                self.view, "导出2D热力图PDF", "SiC_2D热力图报告.pdf", "PDF 文件 (*.pdf)"
             )
             if not file_path:
                 return
 
-            # 当前数据集统计
-            basic_stats = self.model.calculate_basic_statistics(self.current_dataset_index)
-            distribution = self.model.calculate_distribution_analysis(self.current_dataset_index)
-            outliers = self.model.detect_outliers(self.current_dataset_index, self.current_outlier_method)
+            # 必须存在热力图模型且有数据
+            if not self._heatmap_model or self._heatmap_model.get_dataset_count() == 0:
+                QMessageBox.warning(self.view, "提示", "暂无可导出的2D热力图数据。")
+                return
 
-            figures: List[Figure] = []
-
-            # 统计页四张图
-            data, _z, _name = self.model.data_sets[self.current_dataset_index]
-            if 'Value' in data.columns:
-                vals = data['Value'].values
-                vals = vals[~np.isnan(vals)]
-                figures.append(self._create_histogram_chart(vals, basic_stats, distribution))
-                figures.append(self._create_boxplot_chart(vals, basic_stats, outliers))
-                figures.append(self._create_qq_plot(vals))
-                figures.append(self._create_cdf_plot(vals, basic_stats))
-
-            # 所有2D热力图
+            # 计算当前数据集统计（用于智能结论）
+            basic_stats = None
+            distribution = None
+            outliers = None
             try:
-                if self._heatmap_model and self._heatmap_model.get_dataset_count() > 0:
-                    for i in range(self._heatmap_model.get_dataset_count()):
-                        figures.append(self._heatmap_model.create_circular_heatmap_2d(i))
+                basic_stats = self.model.calculate_basic_statistics(self.current_dataset_index)
+                distribution = self.model.calculate_distribution_analysis(self.current_dataset_index)
+                outliers = self.model.detect_outliers(self.current_dataset_index, self.current_outlier_method)
             except Exception:
                 pass
 
-            # 3D图（转为PNG嵌入）
-            try:
-                if self._heatmap_model:
-                    import plotly.io as pio
-                    fig3d = self._heatmap_model.create_plotly_3d_heatmap()
-                    if fig3d is not None:
-                        png = pio.to_image(fig3d, format='png', width=1600, height=1000, scale=2)
-                        image = Image.open(io.BytesIO(png))
-                        holder = Figure(figsize=(11, 7))
-                        ax = holder.add_subplot(111)
-                        ax.axis('off')
-                        ax.imshow(image)
-                        figures.append(holder)
-            except Exception:
-                pass
+            dataset_count = self._heatmap_model.get_dataset_count()
 
-            # 趋势图
-            try:
-                if self._trend_controller:
-                    trend_data = self._trend_controller.model.get_z_trend_data()
-                    if trend_data and trend_data.get('layer_count', 0) > 0:
-                        figures.append(self._trend_controller._create_z_trend_chart(trend_data))
-                        figures.append(self._trend_controller._create_std_trend_chart(trend_data))
-                        figures.append(self._trend_controller._create_minmax_trend_chart(trend_data))
-                        gradient = self._trend_controller.model.calculate_gradient()
-                        if gradient:
-                            figures.append(self._trend_controller._create_gradient_chart(gradient))
-            except Exception:
-                pass
-
-            # 多层对比/差分图
-            try:
-                if self._difference_controller and len(self._difference_controller.model.data_sets) >= 2:
-                    indices = list(range(min(5, len(self._difference_controller.model.data_sets))))
-                    comp = self._difference_controller.model.calculate_multi_layer_comparison(indices)
-                    figures.append(self._difference_controller._create_multi_layer_bar_chart(comp))
-                    figures.append(self._difference_controller._create_multi_layer_boxplot(indices))
-                    if len(indices) <= 5:
-                        figures.append(self._difference_controller._create_multi_layer_histogram(indices))
-            except Exception:
-                pass
-
-            # 输出PDF
+            # A4 纵向: 8.27 x 11.69 英寸；每页2x2固定占位
             with PdfPages(file_path) as pdf:
-                # 封面
-                cover = Figure(figsize=(11.69, 8.27))
-                ax = cover.add_subplot(111)
-                ax.axis('off')
-                title = "SiC晶圆应力分析报告"
-                subtitle = f"数据集: {basic_stats.get('file_name','')}  |  Z={basic_stats.get('z_depth',0)} μm"
-                ax.text(0.5, 0.65, title, fontsize=24, fontweight='bold', ha='center')
-                ax.text(0.5, 0.55, subtitle, fontsize=12, ha='center')
-                summary = (
-                    f"样本数: {basic_stats.get('count',0)} | 均值: {basic_stats.get('mean',0):.2f} MPa | "
-                    f"中位数: {basic_stats.get('median',0):.2f} MPa | σ: {basic_stats.get('std',0):.2f} MPa\n"
-                    f"偏度: {basic_stats.get('skewness',0):.2f} | 峰度: {basic_stats.get('kurtosis',0):.2f} | "
-                    f"异常值: {outliers.get('outlier_count',0)} ({outliers.get('outlier_ratio',0):.2f}%)"
-                )
-                ax.text(0.5, 0.40, summary, fontsize=11, ha='center')
-                pdf.savefig(cover, bbox_inches='tight')
+                idx = 0
+                while idx < dataset_count:
+                    page = Figure(figsize=(8.27, 11.69))
+                    page.suptitle("2D热力图", fontsize=14, fontweight='bold')
+                    axs = page.subplots(2, 2)
 
-                # 简单目录
-                toc = Figure(figsize=(11.69, 8.27))
-                ax = toc.add_subplot(111)
-                ax.axis('off')
-                items = ["目录", "1. 统计分析", "2. 2D热力图", "3. 3D可视化", "4. 趋势分析", "5. 多层对比/差分"]
-                for i, line in enumerate(items):
-                    ax.text(0.1, 0.9 - 0.07*i, line, fontsize=13)
-                pdf.savefig(toc, bbox_inches='tight')
+                    # 保证axs为二维数组
+                    axes_grid = axs if isinstance(axs, (list, tuple, np.ndarray)) else [[axs]]
 
-                # 所有图表
-                for fig in figures:
-                    pdf.savefig(fig, bbox_inches='tight')
+                    for r in range(2):
+                        for c in range(2):
+                            ax = axes_grid[r][c]
+                            ax.axis('off')
+                            if idx < dataset_count:
+                                try:
+                                    # 生成单个2D热力图，并转为PNG嵌入
+                                    fig_2d = self._heatmap_model.create_circular_heatmap_2d(idx)
+                                    buf = io.BytesIO()
+                                    # 提高导出位图的DPI以提升清晰度
+                                    fig_2d.savefig(buf, format='png', dpi=600, bbox_inches='tight')
+                                    buf.seek(0)
+                                    img = Image.open(buf)
+                                    # 禁用插值，保持像素清晰
+                                    ax.imshow(img, interpolation='nearest')
+                                    # 标题（文件名 + Z 深度）
+                                    try:
+                                        data, z_depth, file_name = self._heatmap_model.data_sets[idx]
+                                        ax.set_title(f"{file_name} | Z={z_depth} μm", fontsize=9)
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
+                                finally:
+                                    idx += 1
+                            else:
+                                # 空占位（固定布局）
+                                pass
 
-            QMessageBox.information(self.view, "成功", f"报告已生成:\n{file_path}")
+                    page.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
+                    # 将整页以更高DPI写入PDF
+                    pdf.savefig(page, dpi=300)
+
+                # 追加一页：上半页 3D切片热力图（Plotly导出PNG），下半页 智能数据分析结论
+                try:
+                    page3 = Figure(figsize=(8.27, 11.69))
+                    page3.suptitle("3D切片热力图", fontsize=14, fontweight='bold')
+                    gs = page3.add_gridspec(2, 1, height_ratios=[1.2, 1.0])
+                    ax_top = page3.add_subplot(gs[0])
+                    ax_bot = page3.add_subplot(gs[1])
+
+                    # 3D热力图（切片/体渲染）转PNG嵌入
+                    try:
+                        import plotly.io as pio
+                        fig3d = self._heatmap_model.create_plotly_3d_heatmap()
+                        if fig3d is not None:
+                            png = pio.to_image(fig3d, format='png', width=1600, height=1000, scale=2)
+                            img3d = Image.open(io.BytesIO(png))
+                            ax_top.imshow(img3d, interpolation='nearest')
+                            ax_top.set_title("3D切片热力图", fontsize=12)
+                        else:
+                            ax_top.text(0.5, 0.5, "3D热力图不可用", ha='center', va='center')
+                    except Exception:
+                        ax_top.text(0.5, 0.5, "3D热力图生成失败", ha='center', va='center')
+                    finally:
+                        ax_top.axis('off')
+
+                    # 智能数据分析结论（基于统计/分布/异常）
+                    ax_bot.axis('off')
+                    try:
+                        if basic_stats is not None and distribution is not None:
+                            # 构造结论摘要
+                            # 使用已有的结论构建方法
+                            # 注意：这里使用当前数据集值集作为统计输入，如果无法获取则仅输出基础指标
+                            data_df, _z, file_name = self.model.data_sets[self.current_dataset_index]
+                            if 'Value' in data_df.columns:
+                                values = data_df['Value'].values
+                                values = values[~np.isnan(values)]
+                                text_lines = []
+                                try:
+                                    text_lines.append(self._build_hist_summary(values, basic_stats, distribution))
+                                except Exception:
+                                    pass
+                                try:
+                                    text_lines.append(self._build_box_summary(values, basic_stats, outliers or {}))
+                                except Exception:
+                                    pass
+                                try:
+                                    text_lines.append(self._build_qq_summary(values, distribution))
+                                except Exception:
+                                    pass
+                                try:
+                                    text_lines.append(self._build_cdf_summary(values, basic_stats))
+                                except Exception:
+                                    pass
+                                summary_text = "\n\n".join([t for t in text_lines if t])
+                            else:
+                                summary_text = "统计结论不可用：缺少 Value 列。"
+                        else:
+                            summary_text = "统计结论不可用：统计数据计算失败。"
+                    except Exception:
+                        summary_text = "统计结论生成异常。"
+
+                    ax_bot.text(0.02, 0.98, summary_text, va='top', ha='left', fontsize=10, wrap=True)
+                    page3.tight_layout(pad=0.8, rect=[0, 0, 1, 0.96])
+                    pdf.savefig(page3, dpi=300)
+                except Exception:
+                    # 忽略附加页失败不影响2D导出
+                    pass
+
+                # 追加：统计分析页（2x1，每页最多2张；每格“图+结论”上下排布）
+                try:
+                    data_df, _z, _name = self.model.data_sets[self.current_dataset_index]
+                    if 'Value' in data_df.columns and basic_stats and distribution is not None:
+                        values = data_df['Value'].values
+                        values = values[~np.isnan(values)]
+
+                        figs_stats: List[Tuple[Figure, str]] = []
+                        try:
+                            f1 = self._create_histogram_chart(values, basic_stats, distribution)
+                            s1 = self._build_hist_summary(values, basic_stats, distribution)
+                            figs_stats.append((f1, s1))
+                        except Exception:
+                            pass
+                        try:
+                            f2 = self._create_boxplot_chart(values, basic_stats, outliers or {})
+                            s2 = self._build_box_summary(values, basic_stats, outliers or {})
+                            figs_stats.append((f2, s2))
+                        except Exception:
+                            pass
+                        try:
+                            f3 = self._create_qq_plot(values)
+                            s3 = self._build_qq_summary(values, distribution)
+                            figs_stats.append((f3, s3))
+                        except Exception:
+                            pass
+                        try:
+                            f4 = self._create_cdf_plot(values, basic_stats)
+                            s4 = self._build_cdf_summary(values, basic_stats)
+                            figs_stats.append((f4, s4))
+                        except Exception:
+                            pass
+                        # 渲染到若干页，每页2行1列，每格上图下结论
+                        if figs_stats:
+                            i = 0
+                            while i < len(figs_stats):
+                                page_stats = Figure(figsize=(8.27, 11.69))
+                                page_stats.suptitle("统计分析", fontsize=14, fontweight='bold')
+                                grid = page_stats.add_gridspec(2, 1, height_ratios=[1, 1])
+                                for r in range(2):
+                                    if i >= len(figs_stats):
+                                        break
+                                    fig_src, summary_txt = figs_stats[i]
+                                    cell = page_stats.add_subplot(grid[r, 0])
+                                    cell.axis('off')
+                                    buf = io.BytesIO()
+                                    fig_src.savefig(buf, format='png', dpi=600, bbox_inches='tight')
+                                    buf.seek(0)
+                                    img = Image.open(buf)
+                                    # 调整区域：上方图像，下方文本
+                                    pos = cell.get_position(page_stats)
+                                    x0, y0, w, h = pos.x0, pos.y0, pos.width, pos.height
+                                    text_h = h * 0.18
+                                    img_ax = page_stats.add_axes([x0, y0 + text_h, w, h - text_h])
+                                    img_ax.axis('off')
+                                    img_ax.imshow(img, interpolation='nearest')
+                                    text_ax = page_stats.add_axes([x0, y0, w, text_h])
+                                    text_ax.axis('off')
+                                    text_ax.text(0.01, 0.98, summary_txt or "", va='top', ha='left', fontsize=9, wrap=True)
+                                    i += 1
+                                page_stats.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
+                                pdf.savefig(page_stats, dpi=300)
+                except Exception:
+                    pass
+
+                # 追加：趋势分析页（2x1分页：均值趋势、标准差趋势、极值趋势、梯度图；每格含结论）
+                try:
+                    if self._trend_controller:
+                        trend_data = self._trend_controller.model.get_z_trend_data()
+                        figs_trend: List[Tuple[Figure, str]] = []
+                        if trend_data and trend_data.get('layer_count', 0) > 0:
+                            try:
+                                ft1 = self._trend_controller._create_z_trend_chart(trend_data)
+                                st1 = self._trend_controller._build_z_trend_summary(trend_data)
+                                figs_trend.append((ft1, st1))
+                            except Exception:
+                                pass
+                            try:
+                                ft2 = self._trend_controller._create_std_trend_chart(trend_data)
+                                st2 = self._trend_controller._build_std_trend_summary(trend_data)
+                                figs_trend.append((ft2, st2))
+                            except Exception:
+                                pass
+                            try:
+                                ft3 = self._trend_controller._create_minmax_trend_chart(trend_data)
+                                st3 = self._trend_controller._build_minmax_summary(trend_data)
+                                figs_trend.append((ft3, st3))
+                            except Exception:
+                                pass
+                            try:
+                                gradient = self._trend_controller.model.calculate_gradient()
+                                if gradient:
+                                    ft4 = self._trend_controller._create_gradient_chart(gradient)
+                                    st4 = self._trend_controller._build_gradient_summary(gradient)
+                                    figs_trend.append((ft4, st4))
+                            except Exception:
+                                pass
+                        if figs_trend:
+                            i = 0
+                            while i < len(figs_trend):
+                                page_trend = Figure(figsize=(8.27, 11.69))
+                                page_trend.suptitle("趋势分析", fontsize=14, fontweight='bold')
+                                grid = page_trend.add_gridspec(2, 1, height_ratios=[1, 1])
+                                for r in range(2):
+                                    if i >= len(figs_trend):
+                                        break
+                                    fig_src, summary_txt = figs_trend[i]
+                                    cell = page_trend.add_subplot(grid[r, 0])
+                                    cell.axis('off')
+                                    buf = io.BytesIO()
+                                    fig_src.savefig(buf, format='png', dpi=600, bbox_inches='tight')
+                                    buf.seek(0)
+                                    img = Image.open(buf)
+                                    pos = cell.get_position(page_trend)
+                                    x0, y0, w, h = pos.x0, pos.y0, pos.width, pos.height
+                                    text_h = h * 0.18
+                                    img_ax = page_trend.add_axes([x0, y0 + text_h, w, h - text_h])
+                                    img_ax.axis('off')
+                                    img_ax.imshow(img, interpolation='nearest')
+                                    text_ax = page_trend.add_axes([x0, y0, w, text_h])
+                                    text_ax.axis('off')
+                                    text_ax.text(0.01, 0.98, summary_txt or "", va='top', ha='left', fontsize=9, wrap=True)
+                                    i += 1
+                                page_trend.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
+                                pdf.savefig(page_trend, dpi=300)
+                except Exception:
+                    pass
+
+                # 追加：差分/多层对比页（2x1分页：柱状、箱线、叠加直方图；每格含简述）
+                try:
+                    if self._difference_controller and len(self._difference_controller.model.data_sets) >= 2:
+                        # 取最多5层做多层对比
+                        indices = list(range(min(5, len(self._difference_controller.model.data_sets))))
+                        comparison = self._difference_controller.model.calculate_multi_layer_comparison(indices)
+                        figs_diff: List[Tuple[Figure, str]] = []
+                        try:
+                            f1 = self._difference_controller._create_multi_layer_bar_chart(comparison)
+                            s1 = "对比各层的均值、标准差、CV与极值范围，定位差异显著层。"
+                            figs_diff.append((f1, s1))
+                        except Exception:
+                            pass
+                        try:
+                            f2 = self._difference_controller._create_multi_layer_boxplot(indices, comparison)
+                            s2 = "多层箱线图观察分布、离群点与中位数差异。"
+                            figs_diff.append((f2, s2))
+                        except Exception:
+                            pass
+                        try:
+                            if len(indices) <= 5:
+                                f3 = self._difference_controller._create_multi_layer_histogram(indices, comparison)
+                                s3 = "叠加直方图比较整体分布形状与位置差异。"
+                                figs_diff.append((f3, s3))
+                        except Exception:
+                            pass
+                        if figs_diff:
+                            i = 0
+                            while i < len(figs_diff):
+                                page_diff = Figure(figsize=(8.27, 11.69))
+                                page_diff.suptitle("差分对比", fontsize=14, fontweight='bold')
+                                grid = page_diff.add_gridspec(2, 1, height_ratios=[1, 1])
+                                for r in range(2):
+                                    if i >= len(figs_diff):
+                                        break
+                                    fig_src, summary_txt = figs_diff[i]
+                                    cell = page_diff.add_subplot(grid[r, 0])
+                                    cell.axis('off')
+                                    buf = io.BytesIO()
+                                    fig_src.savefig(buf, format='png', dpi=600, bbox_inches='tight')
+                                    buf.seek(0)
+                                    img = Image.open(buf)
+                                    pos = cell.get_position(page_diff)
+                                    x0, y0, w, h = pos.x0, pos.y0, pos.width, pos.height
+                                    text_h = h * 0.18
+                                    img_ax = page_diff.add_axes([x0, y0 + text_h, w, h - text_h])
+                                    img_ax.axis('off')
+                                    img_ax.imshow(img, interpolation='nearest')
+                                    text_ax = page_diff.add_axes([x0, y0, w, text_h])
+                                    text_ax.axis('off')
+                                    text_ax.text(0.01, 0.98, summary_txt or "", va='top', ha='left', fontsize=9, wrap=True)
+                                    i += 1
+                                page_diff.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
+                                pdf.savefig(page_diff, dpi=300)
+                except Exception:
+                    pass
+
+                # 追加：差分云图页（2x1分页；相邻层成对差分：i - i+1；每格含结论）
+                try:
+                    if self._difference_controller and self._heatmap_model and self._heatmap_model.get_dataset_count() >= 2:
+                        pair_figs: List[Tuple[Figure, str]] = []
+                        try:
+                            total = self._heatmap_model.get_dataset_count()
+                            for i_pair in range(total - 1):
+                                try:
+                                    xi, yi, diff = self._heatmap_model.calculate_difference_map(i_pair, i_pair + 1)
+                                    fig_dm = self._difference_controller._create_difference_heatmap(xi, yi, diff)
+                                    summary_dm = self._difference_controller._build_diff_summary(diff)
+                                    # 组装对比标题
+                                    try:
+                                        name1 = self._heatmap_model.data_sets[i_pair][2]
+                                        name2 = self._heatmap_model.data_sets[i_pair + 1][2]
+                                        summary_full = f"对比：{name1} - {name2}\n" + (summary_dm or "")
+                                    except Exception:
+                                        summary_full = summary_dm or ""
+                                    pair_figs.append((fig_dm, summary_full))
+                                except Exception:
+                                    continue
+                        except Exception:
+                            pair_figs = []
+
+                        if pair_figs:
+                            i = 0
+                            while i < len(pair_figs):
+                                page_pair = Figure(figsize=(8.27, 11.69))
+                                page_pair.suptitle("差分云图", fontsize=14, fontweight='bold')
+                                grid = page_pair.add_gridspec(2, 1, height_ratios=[1, 1])
+                                for r in range(2):
+                                    if i >= len(pair_figs):
+                                        break
+                                    fig_src, summary_txt = pair_figs[i]
+                                    cell = page_pair.add_subplot(grid[r, 0])
+                                    cell.axis('off')
+                                    buf = io.BytesIO()
+                                    fig_src.savefig(buf, format='png', dpi=600, bbox_inches='tight')
+                                    buf.seek(0)
+                                    img = Image.open(buf)
+                                    # 上图下文
+                                    pos = cell.get_position(page_pair)
+                                    x0, y0, w, h = pos.x0, pos.y0, pos.width, pos.height
+                                    text_h = h * 0.18
+                                    img_ax = page_pair.add_axes([x0, y0 + text_h, w, h - text_h])
+                                    img_ax.axis('off')
+                                    img_ax.imshow(img, interpolation='nearest')
+                                    text_ax = page_pair.add_axes([x0, y0, w, text_h])
+                                    text_ax.axis('off')
+                                    text_ax.text(0.01, 0.98, summary_txt or "", va='top', ha='left', fontsize=9, wrap=True)
+                                    i += 1
+                                page_pair.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
+                                pdf.savefig(page_pair, dpi=300)
+                except Exception:
+                    pass
+
+            QMessageBox.information(self.view, "成功", f"PDF已导出:\n{file_path}")
         except Exception as e:
             print(f"生成报告错误: {e}")
             QMessageBox.warning(self.view, "错误", f"生成失败: {str(e)}")
