@@ -1410,9 +1410,12 @@ class HeatmapModel(BaseModel):
         mask = distances > radius
         zi[mask] = np.nan
         
-        # 创建图形
-        self.fig_2d = Figure(figsize=figsize, facecolor='white', constrained_layout=True)
-        ax = self.fig_2d.add_subplot(111)
+        # 创建图形：主图与色标分栏，避免色标挤压导致整体偏右
+        # 使用 gridspec 保证主图左对齐，色标占用极窄一列
+        from app.utils.mpl_layouts import create_main_and_colorbar_axes
+        self.fig_2d, ax, cax = create_main_and_colorbar_axes(
+            figsize=figsize, width_ratio_main=20, width_ratio_cbar=1, wspace=0.05
+        )
         
         # 确定色标卡范围 - 使用新的统一范围计算逻辑
         vmin, vmax = self.get_effective_range(dataset_index)
@@ -1444,8 +1447,8 @@ class HeatmapModel(BaseModel):
         ax.set_title(f'SiC应力分布2D热力图 (Z={z_depth}μm)\n{file_name}', 
                      fontsize=14, fontweight='bold', fontfamily='sans-serif')
         
-        # 添加颜色条
-        cbar = self.fig_2d.colorbar(im, ax=ax, shrink=0.8)
+        # 添加颜色条到专用轴，防止压缩主图
+        cbar = self.fig_2d.colorbar(im, cax=cax)
         cbar.set_label('应力 (MPa)', fontsize=12, fontfamily='sans-serif')
         
         # 添加max/min标注

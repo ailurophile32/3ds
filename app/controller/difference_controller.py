@@ -212,15 +212,16 @@ class DifferenceController:
         return LinearSegmentedColormap.from_list("diff", ["#2166ac", "#ffffff", "#b2182b"], N=256)
 
     def _create_difference_heatmap(self, xi, yi, diff) -> Figure:
-        fig = Figure(figsize=(10, 6), constrained_layout=True)
-        ax = fig.add_subplot(111)
+        # 与2D热力图一致：主图+独立色标轴，避免色标挤压导致画面偏右
+        from app.utils.mpl_layouts import create_main_and_colorbar_axes
+        fig, ax, cax = create_main_and_colorbar_axes(figsize=(10, 6), width_ratio_main=20, width_ratio_cbar=1, wspace=0.05)
         ax.set_title("差分云图 (0 为白)")
         ax.set_xlabel("X (μm)")
         ax.set_ylabel("Y (μm)")
         norm = TwoSlopeNorm(vmin=float(np.nanmin(diff)), vcenter=0.0, vmax=float(np.nanmax(diff)))
         cmap = self._diverging_cmap()
         pcm = ax.pcolormesh(xi, yi, diff, cmap=cmap, norm=norm, shading="auto")
-        cbar = fig.colorbar(pcm, ax=ax)
+        cbar = fig.colorbar(pcm, cax=cax)
         cbar.set_label("差分 (MPa)")
         ax.set_aspect("equal", adjustable="box")
         return fig
