@@ -437,8 +437,8 @@ class StatisticsController:
             
             # 创建进度条对话框
             dataset_count = self._heatmap_model.get_dataset_count()
-            progress = QProgressDialog("正在生成报告...", "取消", 0, 100, self.view)
-            progress.setWindowTitle("生成报告")
+            progress = QProgressDialog("正在生成分析报告...", "取消", 0, 100, self.view)
+            progress.setWindowTitle("生成分析报告")
             progress.setWindowModality(Qt.WindowModal)
             progress.setMinimumDuration(0)
             progress.setValue(0)

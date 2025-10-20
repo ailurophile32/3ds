@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QWidget,
     QPushButton,
     QFileDialog,
@@ -271,22 +272,26 @@ class HeatmapView(BaseView):
 
         self.performance_button = QPushButton("3D性能设置")
         self.performance_button.clicked.connect(self._on_performance_button_clicked)
-        control_layout.addWidget(self.performance_button)
 
         self.save_button = QPushButton("保存当前图像")
         self.save_button.clicked.connect(self._on_save_button_clicked)
         self.save_button.setEnabled(False)
 
-        self.export_report_button = QPushButton("生成报告")
+        self.export_report_button = QPushButton("生成分析报告")
         self.export_report_button.setEnabled(False)
         self.export_report_button.clicked.connect(self._on_export_report_clicked)
 
-        bottom_buttons_row = QHBoxLayout()
-        bottom_buttons_row.addWidget(self.save_button)
-        bottom_buttons_row.addWidget(self.export_report_button)
-        bottom_buttons_row.setStretch(0, 1)
-        bottom_buttons_row.setStretch(1, 1)
-        control_layout.addLayout(bottom_buttons_row)
+        for btn in (self.performance_button, self.save_button, self.export_report_button):
+            btn.setMinimumHeight(32)
+            btn.setMinimumWidth(120)
+
+        grid_buttons = QGridLayout()
+        grid_buttons.addWidget(self.performance_button, 0, 0)
+        grid_buttons.addWidget(self.save_button, 0, 1)
+        grid_buttons.addWidget(self.export_report_button, 1, 0)
+        grid_buttons.setColumnStretch(0, 1)
+        grid_buttons.setColumnStretch(1, 1)
+        control_layout.addLayout(grid_buttons)
 
         self.left_layout.addWidget(control_group)
 

@@ -49,11 +49,6 @@ class StatisticsView(QWidget):
         
         control_bar.addStretch()
         
-        # 导出按钮（生成报告）
-        self.export_button = QPushButton("生成报告")
-        self.export_button.clicked.connect(self._on_export_clicked)
-        self.export_button.setEnabled(False)
-        
         main_layout.addLayout(control_bar)
         
         # 创建分割器（左右布局）
@@ -157,7 +152,6 @@ class StatisticsView(QWidget):
             self.dataset_combo.addItem(f"{file_name} (Z={z_depth}μm)")
         
         self.dataset_combo.blockSignals(False)
-        self.export_button.setEnabled(len(datasets) > 0)
         
         # 如果有数据集，自动选择第一个
         if len(datasets) > 0:
@@ -393,8 +387,5 @@ class StatisticsView(QWidget):
             method_map = {0: 'iqr', 1: 'zscore', 2: 'isolation_forest'}
             self.on_outlier_method_changed(method_map.get(index, 'iqr'))
     
-    def _on_export_clicked(self):
-        """导出按钮点击事件"""
-        if self.on_export_statistics:
-            self.on_export_statistics()
+    
 
