@@ -53,7 +53,6 @@ class StatisticsView(QWidget):
         self.export_button = QPushButton("生成报告")
         self.export_button.clicked.connect(self._on_export_clicked)
         self.export_button.setEnabled(False)
-        control_bar.addWidget(self.export_button)
         
         main_layout.addLayout(control_bar)
         

@@ -8,7 +8,9 @@ from typing import List, Tuple, Optional
 import numpy as np
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_pdf import PdfPages
-from PySide6.QtWidgets import QFileDialog, QMessageBox
+from PySide6.QtWidgets import QFileDialog, QMessageBox, QProgressDialog
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
 import io
 from PIL import Image
 
@@ -419,10 +421,11 @@ class StatisticsController:
     
     def on_export_statistics(self):
         """导出PDF报告（A4纵向），内容为2D热力图，4图/页固定布局，从第一页开始展示数据。"""
+        progress = None
         try:
             # 选择保存路径
             file_path, _ = QFileDialog.getSaveFileName(
-                self.view, "导出2D热力图PDF", "SiC_2D热力图报告.pdf", "PDF 文件 (*.pdf)"
+                self.view, "导出2D热力图PDF", "应力综合分析报告.pdf", "PDF 文件 (*.pdf)"
             )
             if not file_path:
                 return
@@ -431,8 +434,23 @@ class StatisticsController:
             if not self._heatmap_model or self._heatmap_model.get_dataset_count() == 0:
                 QMessageBox.warning(self.view, "提示", "暂无可导出的2D热力图数据。")
                 return
+            
+            # 创建进度条对话框
+            dataset_count = self._heatmap_model.get_dataset_count()
+            progress = QProgressDialog("正在生成报告...", "取消", 0, 100, self.view)
+            progress.setWindowTitle("生成报告")
+            progress.setWindowModality(Qt.WindowModal)
+            progress.setMinimumDuration(0)
+            progress.setValue(0)
+            QApplication.processEvents()
 
             # 计算当前数据集统计（用于智能结论）
+            progress.setLabelText("正在计算统计数据...")
+            progress.setValue(5)
+            QApplication.processEvents()
+            if progress.wasCanceled():
+                return
+            
             basic_stats = None
             distribution = None
             outliers = None
@@ -443,12 +461,20 @@ class StatisticsController:
             except Exception:
                 pass
 
-            dataset_count = self._heatmap_model.get_dataset_count()
-
             # A4 纵向: 8.27 x 11.69 英寸；每页2x2固定占位
+            progress.setLabelText("正在生成2D热力图...")
+            progress.setValue(10)
+            QApplication.processEvents()
+            
             with PdfPages(file_path) as pdf:
                 idx = 0
+                # 计算2D热力图的进度范围：10-40%
+                heatmap_progress_start = 10
+                heatmap_progress_range = 30
+                
                 while idx < dataset_count:
+                    if progress.wasCanceled():
+                        return
                     page = Figure(figsize=(8.27, 11.69))
                     page.suptitle("2D热力图", fontsize=14, fontweight='bold')
                     axs = page.subplots(2, 2)
@@ -481,6 +507,10 @@ class StatisticsController:
                                     pass
                                 finally:
                                     idx += 1
+                                    # 更新2D热力图进度
+                                    current_progress = heatmap_progress_start + int((idx / dataset_count) * heatmap_progress_range)
+                                    progress.setValue(current_progress)
+                                    QApplication.processEvents()
                             else:
                                 # 空占位（固定布局）
                                 pass
@@ -490,6 +520,12 @@ class StatisticsController:
                     pdf.savefig(page, dpi=300)
 
                 # 追加一页：上半页 3D切片热力图（Plotly导出PNG），下半页 智能数据分析结论
+                progress.setLabelText("正在生成3D热力图和智能分析...")
+                progress.setValue(45)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    return
+                
                 try:
                     page3 = Figure(figsize=(8.27, 11.69))
                     page3.suptitle("3D切片热力图", fontsize=14, fontweight='bold')
@@ -557,6 +593,12 @@ class StatisticsController:
                     pass
 
                 # 追加：统计分析页（2x1，每页最多2张；每格“图+结论”上下排布）
+                progress.setLabelText("正在生成统计分析图表...")
+                progress.setValue(55)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    return
+                
                 try:
                     data_df, _z, _name = self.model.data_sets[self.current_dataset_index]
                     if 'Value' in data_df.columns and basic_stats and distribution is not None:
@@ -591,7 +633,10 @@ class StatisticsController:
                         # 渲染到若干页，每页2行1列，每格上图下结论
                         if figs_stats:
                             i = 0
+                            stats_total = len(figs_stats)
                             while i < len(figs_stats):
+                                if progress.wasCanceled():
+                                    return
                                 page_stats = Figure(figsize=(8.27, 11.69))
                                 page_stats.suptitle("统计分析", fontsize=14, fontweight='bold')
                                 grid = page_stats.add_gridspec(2, 1, height_ratios=[1, 1])
@@ -616,12 +661,22 @@ class StatisticsController:
                                     text_ax.axis('off')
                                     text_ax.text(0.01, 0.98, summary_txt or "", va='top', ha='left', fontsize=9, wrap=True)
                                     i += 1
+                                # 更新统计分析进度 (55-70%)
+                                stats_progress = 55 + int((i / max(stats_total, 1)) * 15)
+                                progress.setValue(stats_progress)
+                                QApplication.processEvents()
                                 page_stats.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
                                 pdf.savefig(page_stats, dpi=300)
                 except Exception:
                     pass
 
                 # 追加：趋势分析页（2x1分页：均值趋势、标准差趋势、极值趋势、梯度图；每格含结论）
+                progress.setLabelText("正在生成趋势分析图表...")
+                progress.setValue(70)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    return
+                
                 try:
                     if self._trend_controller:
                         trend_data = self._trend_controller.model.get_z_trend_data()
@@ -655,7 +710,10 @@ class StatisticsController:
                                 pass
                         if figs_trend:
                             i = 0
+                            trend_total = len(figs_trend)
                             while i < len(figs_trend):
+                                if progress.wasCanceled():
+                                    return
                                 page_trend = Figure(figsize=(8.27, 11.69))
                                 page_trend.suptitle("趋势分析", fontsize=14, fontweight='bold')
                                 grid = page_trend.add_gridspec(2, 1, height_ratios=[1, 1])
@@ -679,12 +737,22 @@ class StatisticsController:
                                     text_ax.axis('off')
                                     text_ax.text(0.01, 0.98, summary_txt or "", va='top', ha='left', fontsize=9, wrap=True)
                                     i += 1
+                                # 更新趋势分析进度 (70-82%)
+                                trend_progress = 70 + int((i / max(trend_total, 1)) * 12)
+                                progress.setValue(trend_progress)
+                                QApplication.processEvents()
                                 page_trend.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
                                 pdf.savefig(page_trend, dpi=300)
                 except Exception:
                     pass
 
                 # 追加：差分/多层对比页（2x1分页：柱状、箱线、叠加直方图；每格含简述）
+                progress.setLabelText("正在生成差分对比图表...")
+                progress.setValue(82)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    return
+                
                 try:
                     if self._difference_controller and len(self._difference_controller.model.data_sets) >= 2:
                         # 取最多5层做多层对比
@@ -712,7 +780,10 @@ class StatisticsController:
                             pass
                         if figs_diff:
                             i = 0
+                            diff_total = len(figs_diff)
                             while i < len(figs_diff):
+                                if progress.wasCanceled():
+                                    return
                                 page_diff = Figure(figsize=(8.27, 11.69))
                                 page_diff.suptitle("差分对比", fontsize=14, fontweight='bold')
                                 grid = page_diff.add_gridspec(2, 1, height_ratios=[1, 1])
@@ -736,12 +807,22 @@ class StatisticsController:
                                     text_ax.axis('off')
                                     text_ax.text(0.01, 0.98, summary_txt or "", va='top', ha='left', fontsize=9, wrap=True)
                                     i += 1
+                                # 更新差分对比进度 (82-90%)
+                                diff_progress = 82 + int((i / max(diff_total, 1)) * 8)
+                                progress.setValue(diff_progress)
+                                QApplication.processEvents()
                                 page_diff.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
                                 pdf.savefig(page_diff, dpi=300)
                 except Exception:
                     pass
 
                 # 追加：差分云图页（2x1分页；相邻层成对差分：i - i+1；每格含结论）
+                progress.setLabelText("正在生成差分云图...")
+                progress.setValue(90)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    return
+                
                 try:
                     if self._difference_controller and self._heatmap_model and self._heatmap_model.get_dataset_count() >= 2:
                         pair_figs: List[Tuple[Figure, str]] = []
@@ -767,7 +848,10 @@ class StatisticsController:
 
                         if pair_figs:
                             i = 0
+                            pair_total = len(pair_figs)
                             while i < len(pair_figs):
+                                if progress.wasCanceled():
+                                    return
                                 page_pair = Figure(figsize=(8.27, 11.69))
                                 page_pair.suptitle("差分云图", fontsize=14, fontweight='bold')
                                 grid = page_pair.add_gridspec(2, 1, height_ratios=[1, 1])
@@ -792,13 +876,26 @@ class StatisticsController:
                                     text_ax.axis('off')
                                     text_ax.text(0.01, 0.98, summary_txt or "", va='top', ha='left', fontsize=9, wrap=True)
                                     i += 1
+                                # 更新差分云图进度 (90-98%)
+                                pair_progress = 90 + int((i / max(pair_total, 1)) * 8)
+                                progress.setValue(pair_progress)
+                                QApplication.processEvents()
                                 page_pair.tight_layout(pad=0.6, rect=[0, 0, 1, 0.96])
                                 pdf.savefig(page_pair, dpi=300)
                 except Exception:
                     pass
 
+            # 完成
+            progress.setLabelText("报告生成完成！")
+            progress.setValue(100)
+            QApplication.processEvents()
+            
             QMessageBox.information(self.view, "成功", f"PDF已导出:\n{file_path}")
         except Exception as e:
             print(f"生成报告错误: {e}")
             QMessageBox.warning(self.view, "错误", f"生成失败: {str(e)}")
+        finally:
+            # 确保进度条被关闭
+            if progress is not None:
+                progress.close()
 

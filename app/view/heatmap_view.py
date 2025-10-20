@@ -82,6 +82,7 @@ class HeatmapView(BaseView):
                 "on_csv_selection_changed": None,
                 "on_flip_x_axis": None,
                 "on_point_clicked": None,
+                "on_export_statistics": None,
             }
         )
 
@@ -268,16 +269,24 @@ class HeatmapView(BaseView):
         colorbar_layout.addLayout(quick_buttons_layout)
         control_layout.addWidget(colorbar_group)
 
-        # 添加性能设置按钮
         self.performance_button = QPushButton("3D性能设置")
         self.performance_button.clicked.connect(self._on_performance_button_clicked)
         control_layout.addWidget(self.performance_button)
 
-        # 保存按钮
         self.save_button = QPushButton("保存当前图像")
         self.save_button.clicked.connect(self._on_save_button_clicked)
         self.save_button.setEnabled(False)
-        control_layout.addWidget(self.save_button)
+
+        self.export_report_button = QPushButton("生成报告")
+        self.export_report_button.setEnabled(False)
+        self.export_report_button.clicked.connect(self._on_export_report_clicked)
+
+        bottom_buttons_row = QHBoxLayout()
+        bottom_buttons_row.addWidget(self.save_button)
+        bottom_buttons_row.addWidget(self.export_report_button)
+        bottom_buttons_row.setStretch(0, 1)
+        bottom_buttons_row.setStretch(1, 1)
+        control_layout.addLayout(bottom_buttons_row)
 
         self.left_layout.addWidget(control_group)
 
@@ -608,6 +617,9 @@ class HeatmapView(BaseView):
         """处理保存热力图按钮点击事件"""
         if self.current_view_type:
             self.trigger_callback("on_save_heatmap", self.current_view_type)
+
+    def _on_export_report_clicked(self):
+        self.trigger_callback("on_export_statistics")
 
     def _on_colormap_changed(self):
         """处理色标变更事件"""
@@ -1689,7 +1701,6 @@ class HeatmapView(BaseView):
                 return
 
             for idx, img in enumerate(images):
-                # 创建容器
                 card = QFrame()
                 card.setObjectName("previewCard")
                 card.setStyleSheet("#previewCard { background: white; border: 1px solid #e0e0e0; border-radius: 8px; }")

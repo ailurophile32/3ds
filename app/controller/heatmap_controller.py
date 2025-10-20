@@ -79,7 +79,12 @@ class HeatmapController(BaseController):
             self.view.update_status(f"已添加数据集: {data['file_name']}")
             
             # 更新按钮状态
-            self.view.generate_3d_button.setEnabled(self.model.get_dataset_count() > 0)
+            _enabled = self.model.get_dataset_count() > 0
+            self.view.generate_3d_button.setEnabled(_enabled)
+            try:
+                self.view.export_report_button.setEnabled(_enabled)
+            except Exception:
+                pass
             
             # 同步更新统计分析模块
             self.statistics_controller.set_data_sets(self.model.data_sets)
@@ -102,7 +107,12 @@ class HeatmapController(BaseController):
             self.view.update_status(f"已移除数据集: {data['file_name']}")
             
             # 更新按钮状态
-            self.view.generate_3d_button.setEnabled(self.model.get_dataset_count() > 0)
+            _enabled = self.model.get_dataset_count() > 0
+            self.view.generate_3d_button.setEnabled(_enabled)
+            try:
+                self.view.export_report_button.setEnabled(_enabled)
+            except Exception:
+                pass
             
             # 同步更新统计分析模块
             self.statistics_controller.set_data_sets(self.model.data_sets)
@@ -169,6 +179,7 @@ class HeatmapController(BaseController):
         self.view.register_callback('on_show_performance_settings', self.on_show_performance_settings)
         self.view.register_callback('on_csv_selection_changed', self.on_csv_selection_changed)
         self.view.register_callback('on_flip_x_axis', self.on_flip_x_axis)
+        self.view.register_callback('on_export_statistics', self.statistics_controller.on_export_statistics)
         
         # 初始化视图状态，同步模型的翻转状态到视图
         self.view.update_flip_x_status(self.model._x_axis_flipped)
@@ -358,6 +369,7 @@ class HeatmapController(BaseController):
             self.view.message_handler.show_warning('提示', '请先加载至少一个CSV数据集。')
             return
             
+        progress_dialog = None
         try:
             # 创建进度对话框
             progress_dialog = QProgressDialog("正在生成3D热力图，请稍候...", None, 0, 0, self.view)
@@ -445,15 +457,20 @@ class HeatmapController(BaseController):
                 self.view.vmax_spinbox.setEnabled(True)
                 self.view.apply_range_button.setEnabled(False)  # 默认不启用，直到用户手动修改
             self.view.reset_range_button.setEnabled(True)
-            
-            # 关闭进度对话框
-            progress_dialog.close()
-            
+            # 更新导出报告按钮状态
+            try:
+                self.view.export_report_button.setEnabled(self.model.get_dataset_count() > 0)
+            except Exception:
+                pass
+
             self.view.update_status('3D多层热力图生成完成 (WebGL渲染)')
-            
+
         except Exception as e:
             self.view.message_handler.show_error('严重错误', f"生成3D热力图时发生严重错误，详情请查看控制台输出：\n{str(e)}")
             self.view.update_status(f'生成3D热力图失败: {str(e)}')
+        finally:
+            if progress_dialog is not None:
+                progress_dialog.close()
     
     def on_save_heatmap(self, figure_type: str):
         """处理保存热力图事件
